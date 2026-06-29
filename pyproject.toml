@@ -1,0 +1,11 @@
+[project]
+name = "NDimLab"
+version = "0.0.1"
+description = "Tools for working with n-dimensional matrices and transformations"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "numpy>=2.5.0",
+    "pyside6>=6.11.1",
+    "pyside6-stubs>=6.7.3.0",
+]
