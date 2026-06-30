@@ -9,7 +9,7 @@ from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, Q
 
 
 class NDimLabWindow(QMainWindow):
-	def __init__(self, begin_paused: bool = False) -> None:
+	def __init__(self, begin_paused: bool = False, scale: int = 1) -> None:
 		super().__init__()
 		self.setWindowTitle("NDimLab")
 		self.paused: bool = begin_paused
@@ -33,11 +33,13 @@ class NDimLabWindow(QMainWindow):
 		self.setCentralWidget(central)
 
 		# --- Scene + View ---
-		self.scene = QGraphicsScene(-5, -5, 10, 10)
+		self.scene = QGraphicsScene()
 		self.scene.setBackgroundBrush(Qt.GlobalColor.black)
 		self.view = QGraphicsView(self.scene)
+		self.view.setAlignment(Qt.AlignmentFlag.AlignCenter)
+		self.view.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
 		self.view.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-		self.view.scale(100, -100)  # Flip Y-axis
+		self.view.scale(scale, -scale)
 
 		layout.addWidget(self.view)
 
@@ -45,8 +47,8 @@ class NDimLabWindow(QMainWindow):
 		axis_pen = QPen(QColor("#E6E6E6"), 1)
 		axis_pen.setCosmetic(True)
 
-		self.scene.addLine(-5, 0, 5, 0, axis_pen)
-		self.scene.addLine(0, -5, 0, 5, axis_pen)
+		self.scene.addLine(-15, 0,15, 0, axis_pen)
+		self.scene.addLine(0, -15, 0, 15, axis_pen)
 
 		# --- Timers ---
 		self.timer = QElapsedTimer()
@@ -60,7 +62,6 @@ class NDimLabWindow(QMainWindow):
 		self.frame_timer.start(0)
 
 	def tick(self) -> None:
-		"""Main loop"""
 		elapsed = self.timer.nsecsElapsed() / 1e9
 		self.timer.restart()
 
@@ -81,6 +82,25 @@ class NDimLabWindow(QMainWindow):
 		self.paused = state
 		...
 		print("Toggled:", state)
+
+	def _zoom(self, factor):
+		center = self.view.mapToScene(self.view.viewport().rect().center())
+		self.view.translate(center.x(), center.y())
+		self.view.scale(factor, factor)
+		self.view.translate(-center.x(), -center.y())
+
+	def keyPressEvent(self, event):
+		zoom_in_factor = 1.1
+		zoom_out_factor = 1 / zoom_in_factor
+
+		if event.modifiers() & Qt.KeyboardModifier.ControlModifier and event.key() in (Qt.Key.Key_Equal, Qt.Key.Key_Plus):
+			self._zoom(zoom_in_factor)
+			return
+		if event.modifiers() & Qt.KeyboardModifier.ControlModifier and event.key() == Qt.Key.Key_Minus:
+			self._zoom(zoom_out_factor)
+			return
+
+		super().keyPressEvent(event)
 
 
 class Transformation:
@@ -205,7 +225,7 @@ if __name__ == "__main__":
 	], dtype=float), True, True)
 
 	app = QApplication(sys.argv)
-	window = NDimLabWindow()
+	window = NDimLabWindow(scale=30)
 
 	squares: list[SceneEntity] = []
 	squares.append(SceneEntity(window.scene, sq1))
@@ -214,7 +234,7 @@ if __name__ == "__main__":
 	squares[0].compute_transformations()
 	for i in range(1, 10):
 		squares.append(SceneEntity(window.scene, sq1, fixed_point=FixedPoint(0, squares[i-1], 2)))
-		squares[i].add_to_scene(color=QColor(random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)))
+		squares[i].add_to_scene(i + 1, QColor(random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)))
 		squares[i].add_transformation(Transformation(np.array([
 			[cos((i + 1) * theta), -sin((i + 1) * theta)],
 			[sin((i + 1) * theta), cos((i + 1) * theta)],
@@ -222,6 +242,5 @@ if __name__ == "__main__":
 		squares[i].compute_transformations()
 
 	window.scene_entities.extend(squares)
-	# window.resize(800, 600)
 	window.show()
 	app.exec()
