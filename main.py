@@ -1,3 +1,4 @@
+import random
 import sys
 import numpy as np
 from numpy.typing import NDArray
@@ -91,12 +92,21 @@ class Transformation:
 		self.continuous: bool = continuous
 		self.name: str = name
 
+
+class FixedPoint:
+	def __init__(self, my_index: int, other_entity: SceneEntity, other_index: int) -> None:
+		self.my_index: int = my_index
+		self.other_entity: SceneEntity = other_entity
+		self.other_index: int = other_index
+
+
 class SceneEntity:
-	def __init__(self, scene: QGraphicsScene, points: NDArray, column_major: bool = False) -> None:
+	def __init__(self, scene: QGraphicsScene, points: NDArray, column_major: bool = False, fixed_point: FixedPoint | None = None) -> None:
 		self.scene: QGraphicsScene = scene
 		self.original_points: NDArray = points.T.copy() if column_major else points.copy()
 		self.points: NDArray = points.T.copy() if column_major else points.copy()
 		self.column_major: bool = column_major
+		self.fixed_point: FixedPoint | None = fixed_point
 		self.transformations: list[Transformation] = []
 		self.combined_one_shot: list[Transformation] = []
 		self.combined_continuous: list[Transformation] = []
@@ -109,6 +119,18 @@ class SceneEntity:
 		self.pen.setCosmetic(True)
 		self.poly_item: QGraphicsPolygonItem = self._create_graphics_item()
 		self.poly_item.setZValue(render_order)
+
+	def fix_point_to(self, my_index: int, other_entity: SceneEntity, other_index: int) -> None:
+		self.fixed_point = FixedPoint(my_index, other_entity, other_index)
+
+	def _apply_fixed_point(self) -> None:
+		if self.fixed_point is None:
+			return
+		
+		fp = self.fixed_point
+		delta = fp.other_entity.points[fp.other_index] - self.points[fp.my_index]
+
+		self.points[:] += delta
 
 	def add_transformation(self, transformation: Transformation) -> None:
 		self.transformations.append(transformation)
@@ -151,6 +173,7 @@ class SceneEntity:
 				self.points[:] = self.points @ tr.matrix.T
 			else:
 				self.points[:] = self.points + tr.matrix
+		self._apply_fixed_point()
 		self.poly_item.setPolygon(QPolygonF([QPointF(x, y) for x, y in self.points]))
 
 
@@ -183,12 +206,22 @@ if __name__ == "__main__":
 
 	app = QApplication(sys.argv)
 	window = NDimLabWindow()
-	
-	sq1_entity = SceneEntity(window.scene, sq1)
-	sq1_entity.add_to_scene()
-	sq1_entity.add_transformation(t0)
-	sq1_entity.compute_transformations()
-	window.scene_entities.append(sq1_entity)
+
+	squares: list[SceneEntity] = []
+	squares.append(SceneEntity(window.scene, sq1))
+	squares[0].add_to_scene()
+	squares[0].add_transformation(t0)
+	squares[0].compute_transformations()
+	for i in range(1, 10):
+		squares.append(SceneEntity(window.scene, sq1, fixed_point=FixedPoint(0, squares[i-1], 2)))
+		squares[i].add_to_scene(color=QColor(random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)))
+		squares[i].add_transformation(Transformation(np.array([
+			[cos((i + 1) * theta), -sin((i + 1) * theta)],
+			[sin((i + 1) * theta), cos((i + 1) * theta)],
+		], dtype=float), True, True))
+		squares[i].compute_transformations()
+
+	window.scene_entities.extend(squares)
 	# window.resize(800, 600)
 	window.show()
 	app.exec()
