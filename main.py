@@ -20,6 +20,41 @@ class InfiniteAxesView(QGraphicsView):
 		painter.drawLine(QLineF(rect.left(), 0, rect.right(), 0))
 		painter.drawLine(QLineF(0, rect.top(), 0, rect.bottom()))
 
+	def _zoom(self, factor: float, anchor_scene_pos: QPointF | None = None) -> None:
+		# If no custom anchor is provided (Keyboard), fall back to screen center
+		if anchor_scene_pos is None:
+			anchor_scene_pos = self.mapToScene(self.viewport().rect().center())
+
+		self.translate(anchor_scene_pos.x(), anchor_scene_pos.y())
+		self.scale(factor, factor)
+		self.translate(-anchor_scene_pos.x(), -anchor_scene_pos.y())
+
+	def keyPressEvent(self, event) -> None:
+		zoom_in_factor = 1.1
+		zoom_out_factor = 1 / zoom_in_factor
+
+		if event.modifiers() & Qt.KeyboardModifier.ControlModifier and event.key() in (Qt.Key.Key_Equal, Qt.Key.Key_Plus):
+			self._zoom(zoom_in_factor)
+			return
+		if event.modifiers() & Qt.KeyboardModifier.ControlModifier and event.key() == Qt.Key.Key_Minus:
+			self._zoom(zoom_out_factor)
+			return
+
+		super().keyPressEvent(event)
+	
+	def wheelEvent(self, event: QWheelEvent) -> None:
+		zoom_in_factor = 1.02
+		zoom_out_factor = 1 / zoom_in_factor
+
+		mouse_scene_pos = self.mapToScene(event.position().toPoint())
+
+		if event.angleDelta().y() > 0:
+			self._zoom(zoom_in_factor, mouse_scene_pos)
+		else:
+			self._zoom(zoom_out_factor, mouse_scene_pos)
+
+		event.accept()
+
 
 class NDimLabWindow(QMainWindow):
 	def __init__(self, begin_paused: bool = False, scale: int = 1) -> None:
@@ -92,53 +127,6 @@ class NDimLabWindow(QMainWindow):
 
 	def pause_button_clicked(self, state: bool) -> None:
 		self.paused = state
-		...
-		print("Toggled:", state)
-
-	def _zoom(self, factor):
-		center = self.view.mapToScene(self.view.viewport().rect().center())
-		self.view.translate(center.x(), center.y())
-		self.view.scale(factor, factor)
-		self.view.translate(-center.x(), -center.y())
-
-	def keyPressEvent(self, event):
-		zoom_in_factor = 1.1
-		zoom_out_factor = 1 / zoom_in_factor
-
-		if event.modifiers() & Qt.KeyboardModifier.ControlModifier and event.key() in (Qt.Key.Key_Equal, Qt.Key.Key_Plus):
-			self._zoom(zoom_in_factor)
-			return
-		if event.modifiers() & Qt.KeyboardModifier.ControlModifier and event.key() == Qt.Key.Key_Minus:
-			self._zoom(zoom_out_factor)
-			return
-
-		super().keyPressEvent(event)
-
-	def __wheelEvent(self, event: QWheelEvent) -> None:
-		zoom_in_factor = 1.1
-		zoom_out_factor = 1 / zoom_in_factor
-
-		if event.angleDelta().y() > 0:
-			self._zoom(zoom_in_factor)
-		else:
-			self._zoom(zoom_out_factor)
-
-		event.accept()
-
-	def eventFilter(self, watched, event):
-		# Catch the wheel event specifically from the view's viewport
-		if watched == self.view.viewport() and event.type() == event.Type.Wheel:
-			zoom_in_factor = 1.1
-			zoom_out_factor = 1 / zoom_in_factor
-
-			if event.angleDelta().y() > 0:
-				self._zoom(zoom_in_factor)
-			else:
-				self._zoom(zoom_out_factor)
-			
-			return True # Tell Qt we handled it; STOP the default scrolling action
-			
-		return super().eventFilter(watched, event)
 
 
 class Transformation:
