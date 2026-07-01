@@ -3,9 +3,22 @@ import sys
 import numpy as np
 from numpy.typing import NDArray
 from math import cos, sin, pi
-from PySide6.QtCore import Qt, QPointF, QTimer, QElapsedTimer
-from PySide6.QtGui import QAction, QPen, QPolygonF, QPainter, QColor
+from PySide6.QtCore import Qt, QPointF, QLineF, QTimer, QElapsedTimer, QRectF, QRect
+from PySide6.QtGui import QAction, QPen, QPolygonF, QPainter, QColor, QWheelEvent
 from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QGraphicsScene, QGraphicsView, QGraphicsPolygonItem
+
+
+class InfiniteAxesView(QGraphicsView):
+	def drawBackground(self, painter: QPainter, rect: QRectF | QRect) -> None:
+		super().drawBackground(painter, rect)
+
+		painter_pen = QPen(QColor("#E6E6E6"), 2, Qt.PenStyle.SolidLine)
+		painter_pen.setCosmetic(True)
+		painter.setPen(painter_pen)
+
+		# Draw axes clipped to visible region
+		painter.drawLine(QLineF(rect.left(), 0, rect.right(), 0))
+		painter.drawLine(QLineF(0, rect.top(), 0, rect.bottom()))
 
 
 class NDimLabWindow(QMainWindow):
@@ -35,27 +48,26 @@ class NDimLabWindow(QMainWindow):
 		# --- Scene + View ---
 		self.scene = QGraphicsScene()
 		self.scene.setBackgroundBrush(Qt.GlobalColor.black)
-		self.view = QGraphicsView(self.scene)
+		self.scene.setSceneRect(-1e12, -1e12, 2e12, 2e12)
+		self.scene.setItemIndexMethod(QGraphicsScene.ItemIndexMethod.NoIndex)
+		self.view = InfiniteAxesView(self.scene)
 		self.view.setAlignment(Qt.AlignmentFlag.AlignCenter)
+		self.view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+		self.view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 		self.view.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
 		self.view.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+		self.view.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+		self.view.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
 		self.view.scale(scale, -scale)
 
 		layout.addWidget(self.view)
-
-		# --- Axis ---
-		axis_pen = QPen(QColor("#E6E6E6"), 1)
-		axis_pen.setCosmetic(True)
-
-		self.scene.addLine(-15, 0,15, 0, axis_pen)
-		self.scene.addLine(0, -15, 0, 15, axis_pen)
 
 		# --- Timers ---
 		self.timer = QElapsedTimer()
 		self.timer.start()
 
 		self.accumulator = 0.0
-		self.dt = 1.0 / 30.0
+		self.dt = 1.0 / 60.0
 
 		self.frame_timer = QTimer()
 		self.frame_timer.timeout.connect(self.tick)
@@ -101,6 +113,32 @@ class NDimLabWindow(QMainWindow):
 			return
 
 		super().keyPressEvent(event)
+
+	def __wheelEvent(self, event: QWheelEvent) -> None:
+		zoom_in_factor = 1.1
+		zoom_out_factor = 1 / zoom_in_factor
+
+		if event.angleDelta().y() > 0:
+			self._zoom(zoom_in_factor)
+		else:
+			self._zoom(zoom_out_factor)
+
+		event.accept()
+
+	def eventFilter(self, watched, event):
+		# Catch the wheel event specifically from the view's viewport
+		if watched == self.view.viewport() and event.type() == event.Type.Wheel:
+			zoom_in_factor = 1.1
+			zoom_out_factor = 1 / zoom_in_factor
+
+			if event.angleDelta().y() > 0:
+				self._zoom(zoom_in_factor)
+			else:
+				self._zoom(zoom_out_factor)
+			
+			return True # Tell Qt we handled it; STOP the default scrolling action
+			
+		return super().eventFilter(watched, event)
 
 
 class Transformation:
