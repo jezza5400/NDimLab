@@ -8,7 +8,16 @@ from PySide6.QtGui import QAction, QPen, QPolygonF, QPainter, QColor, QWheelEven
 from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QGraphicsScene, QGraphicsView, QGraphicsPolygonItem
 
 
+class ViewAxisMarkers:
+	def __init__(self, visible: bool, major: bool, minor: bool, size_pct: int | float):
+		...
+
+
 class InfiniteAxesView(QGraphicsView):
+	def __init__(self, axis_markers: bool = False, *args, **kwargs):
+		self.axis_markers: bool = axis_markers
+		super().__init__(*args, **kwargs)
+
 	def drawBackground(self, painter: QPainter, rect: QRectF | QRect) -> None:
 		super().drawBackground(painter, rect)
 
@@ -19,6 +28,17 @@ class InfiniteAxesView(QGraphicsView):
 		# Draw axes clipped to visible region
 		painter.drawLine(QLineF(rect.left(), 0, rect.right(), 0))
 		painter.drawLine(QLineF(0, rect.top(), 0, rect.bottom()))
+
+		print(f"{rect.right() - rect.left()}, {rect.top() - rect.bottom()}")
+		# Draw axis markers if enabled
+		size_pct: float = 0.015
+		size_pct_x: float = size_pct * (rect.right() - rect.left())
+		size_pct_y: float = size_pct * (rect.bottom() - rect.top())
+		if self.axis_markers:
+			for i in range(int(rect.left()), int(rect.right()) + 1):
+				painter.drawLine(QLineF(i, -size_pct_x, i, size_pct_x))
+			for i in range(int(rect.top()), int(rect.bottom()) + 1):
+				painter.drawLine(QLineF(-size_pct_y, i, size_pct_y, i))
 
 	def _zoom(self, factor: float, anchor_scene_pos: QPointF | None = None) -> None:
 		# If no custom anchor is provided (Keyboard), fall back to screen center
@@ -85,7 +105,7 @@ class NDimLabWindow(QMainWindow):
 		self.scene.setBackgroundBrush(Qt.GlobalColor.black)
 		self.scene.setSceneRect(-1e12, -1e12, 2e12, 2e12)
 		self.scene.setItemIndexMethod(QGraphicsScene.ItemIndexMethod.NoIndex)
-		self.view = InfiniteAxesView(self.scene)
+		self.view = InfiniteAxesView(axis_markers=True, scene=self.scene)
 		# self.view.setAlignment(Qt.AlignmentFlag.AlignCenter)  # Should be default?
 		self.view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 		self.view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -284,7 +304,7 @@ if __name__ == "__main__":
 	squares[0].add_to_scene()
 	squares[0].add_transformation(t0)
 	squares[0].compute_transformations()
-	for i in range(1, 10):
+	for i in range(1, 1000):
 		squares.append(SceneEntity(window.scene, sq1, fixed_point=FixedPoint(0, squares[i - 1], 2)))
 		squares[i].add_to_scene(i + 1, QColor(random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)))
 		squares[i].add_transformation(
