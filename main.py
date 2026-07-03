@@ -41,7 +41,7 @@ class InfiniteAxesView(QGraphicsView):
 			return
 
 		super().keyPressEvent(event)
-	
+
 	def wheelEvent(self, event: QWheelEvent) -> None:
 		zoom_in_factor = 1.02
 		zoom_out_factor = 1 / zoom_in_factor
@@ -70,15 +70,15 @@ class NDimLabWindow(QMainWindow):
 		pause_action.setCheckable(True)
 		pause_action.setChecked(self.paused)
 
+		self.physics_step_action = QAction("&Step", self)
+		self.physics_step_action.triggered.connect(self.physics_step_clicked)
+		self.physics_step_action.setEnabled(False)
+
 		# --- MenuBar ---
 		menuBar = self.menuBar()
 		pause_menu = menuBar.addMenu("&Menu")
 		pause_menu.addAction(pause_action)
-
-		# --- Central widget + layout ---
-		central = QWidget()
-		layout = QVBoxLayout(central)
-		self.setCentralWidget(central)
+		pause_menu.addAction(self.physics_step_action)
 
 		# --- Scene + View ---
 		self.scene = QGraphicsScene()
@@ -86,15 +86,24 @@ class NDimLabWindow(QMainWindow):
 		self.scene.setSceneRect(-1e12, -1e12, 2e12, 2e12)
 		self.scene.setItemIndexMethod(QGraphicsScene.ItemIndexMethod.NoIndex)
 		self.view = InfiniteAxesView(self.scene)
-		self.view.setAlignment(Qt.AlignmentFlag.AlignCenter)
+		# self.view.setAlignment(Qt.AlignmentFlag.AlignCenter)  # Should be default?
 		self.view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 		self.view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 		self.view.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
 		self.view.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-		self.view.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
-		self.view.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
-		self.view.scale(scale, -scale)
+		self.view.setTransformationAnchor(QGraphicsView.ViewportAnchor.NoAnchor)  # AnchorViewCenter is default
+		self.view.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)  # NoAnchor is default
 
+		# Initial y-axis flip and scale
+		anchor_scene_pos = self.view.mapToScene(self.view.viewport().rect().center())
+		self.view.translate(anchor_scene_pos.x(), anchor_scene_pos.y())
+		self.view.scale(scale, -scale)
+		self.view.translate(-anchor_scene_pos.x(), -anchor_scene_pos.y())
+
+		# --- Central widget + layout ---
+		central = QWidget()
+		layout = QVBoxLayout(central)
+		self.setCentralWidget(central)
 		layout.addWidget(self.view)
 
 		# --- Timers ---
@@ -108,6 +117,13 @@ class NDimLabWindow(QMainWindow):
 		self.frame_timer.timeout.connect(self.tick)
 		self.frame_timer.start(0)
 
+	def update_scene_entities(self) -> None:
+		for entity in self.scene_entities:
+			if self.has_reset:
+				entity.apply_one_shot()
+				self.has_reset = False
+			entity.apply_continuous()
+
 	def tick(self) -> None:
 		elapsed = self.timer.nsecsElapsed() / 1e9
 		self.timer.restart()
@@ -116,17 +132,17 @@ class NDimLabWindow(QMainWindow):
 			self.accumulator += elapsed
 
 			while self.accumulator >= self.dt:
-				for entity in self.scene_entities:
-					if self.has_reset:
-						entity.apply_one_shot()
-						self.has_reset = False
-					entity.apply_continuous()
+				self.update_scene_entities()
 				self.accumulator -= self.dt
 
 		self.view.viewport().update()
 
 	def pause_button_clicked(self, state: bool) -> None:
 		self.paused = state
+		self.physics_step_action.setEnabled(state)
+
+	def physics_step_clicked(self) -> None:
+		self.update_scene_entities()
 
 
 class Transformation:
@@ -172,7 +188,7 @@ class SceneEntity:
 	def _apply_fixed_point(self) -> None:
 		if self.fixed_point is None:
 			return
-		
+
 		fp = self.fixed_point
 		delta = fp.other_entity.points[fp.other_index] - self.points[fp.my_index]
 
@@ -237,18 +253,28 @@ class PointSet(SceneEntity):
 
 
 if __name__ == "__main__":
-	sq1: NDArray = np.array([
-		[0, 0],
-		[1, 0],
-		[1, 1],
-		[0, 1],
-	], dtype=float)
+	sq1: NDArray = np.array(
+		[
+			[0, 0],
+			[1, 0],
+			[1, 1],
+			[0, 1],
+		],
+		dtype=float,
+	)
 
 	theta = pi / 180
-	t0: Transformation = Transformation(np.array([
-		[cos(theta), -sin(theta)],
-		[sin(theta), cos(theta)],
-	], dtype=float), True, True)
+	t0: Transformation = Transformation(
+		np.array(
+			[
+				[cos(theta), -sin(theta)],
+				[sin(theta), cos(theta)],
+			],
+			dtype=float,
+		),
+		True,
+		True,
+	)
 
 	app = QApplication(sys.argv)
 	window = NDimLabWindow(scale=30)
@@ -259,12 +285,21 @@ if __name__ == "__main__":
 	squares[0].add_transformation(t0)
 	squares[0].compute_transformations()
 	for i in range(1, 10):
-		squares.append(SceneEntity(window.scene, sq1, fixed_point=FixedPoint(0, squares[i-1], 2)))
+		squares.append(SceneEntity(window.scene, sq1, fixed_point=FixedPoint(0, squares[i - 1], 2)))
 		squares[i].add_to_scene(i + 1, QColor(random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)))
-		squares[i].add_transformation(Transformation(np.array([
-			[cos((i + 1) * theta), -sin((i + 1) * theta)],
-			[sin((i + 1) * theta), cos((i + 1) * theta)],
-		], dtype=float), True, True))
+		squares[i].add_transformation(
+			Transformation(
+				np.array(
+					[
+						[cos((i + 1) * theta), -sin((i + 1) * theta)],
+						[sin((i + 1) * theta), cos((i + 1) * theta)],
+					],
+					dtype=float,
+				),
+				True,
+				True,
+			)
+		)
 		squares[i].compute_transformations()
 
 	window.scene_entities.extend(squares)
