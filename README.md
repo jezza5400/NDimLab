@@ -4,9 +4,10 @@
 
 NDimLab is a Python library for working with and visualizing n-dimensional arrays and tensors.
 
-Notes:
+## Notes
 
 - One-shot transformations must be applied before continuous transformations who subsequently get repeatedly applied once each physics update.
+- When combining transformations (and internally promoting to homogeneous): first combine all adjacent matrices of the same type (linear or vector), then promote all to homogeneous, and finally combine into one.
 
 ## Dev Note: Qt Dark Mode in Virtual Environments
 
