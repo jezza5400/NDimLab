@@ -1,14 +1,15 @@
 from random import randint
 from typing import cast
 from collections.abc import Iterable
+from collections import deque
 from dataclasses import dataclass
 import sys
 import numpy as np
 from numpy.typing import NDArray
-from math import cos, sin, pi
+from math import cos, sin, pi, log10, floor, isclose, ceil
 from PySide6.QtCore import Qt, QPointF, QLineF, QTimer, QElapsedTimer, QRectF, QRect
 from PySide6.QtGui import QAction, QPen, QPolygonF, QPainter, QColor, QWheelEvent
-from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QGraphicsScene, QGraphicsView, QGraphicsPolygonItem
+from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QGraphicsScene, QGraphicsView, QGraphicsPolygonItem, QLabel
 
 
 class ViewAxisMarkers:
@@ -17,28 +18,21 @@ class ViewAxisMarkers:
 
 class InfiniteAxesView(QGraphicsView):
 	def __init__(self, axis_markers: bool = False, *args, **kwargs):
-		self.axis_markers: bool = axis_markers
 		super().__init__(*args, **kwargs)
 
-	def drawBackground(self, painter: QPainter, rect: QRectF | QRect) -> None:
-		super().drawBackground(painter, rect)
+		self.axis_markers: bool = axis_markers
 
-		painter_pen = QPen(QColor("#E6E6E6"), 2, Qt.PenStyle.SolidLine)
-		painter_pen.setCosmetic(True)
-		painter.setPen(painter_pen)
+		self.major_pen = QPen(QColor("#666666"), 1, Qt.PenStyle.SolidLine)
+		self.major_pen.setCosmetic(True)
 
-		# Draw axes clipped to visible region
-		painter.drawLine(QLineF(rect.left(), 0, rect.right(), 0))
-		painter.drawLine(QLineF(0, rect.top(), 0, rect.bottom()))
+		self.minor_pen = QPen(QColor("#1F1F1F"), 1, Qt.PenStyle.SolidLine)
+		self.minor_pen.setCosmetic(True)
 
-		if self.axis_markers:
-			size_pct: float = 0.015
-			size_pct_x: float = size_pct * (rect.right() - rect.left())
-			size_pct_y: float = size_pct * (rect.bottom() - rect.top())
-			for i in range(int(rect.left()), int(rect.right()) + 1):
-				painter.drawLine(QLineF(i, -size_pct_x, i, size_pct_x))
-			for i in range(int(rect.top()), int(rect.bottom()) + 1):
-				painter.drawLine(QLineF(-size_pct_y, i, size_pct_y, i))
+		self.axis_pen = QPen(QColor("#E6E6E6"), 2, Qt.PenStyle.SolidLine)
+		self.axis_pen.setCosmetic(True)
+
+		self.major_step: float = 5.0
+		self.minor_step: float = self.major_step / 5.0
 
 	def _zoom(self, factor: float, anchor_scene_pos: QPointF | None = None) -> None:
 		if anchor_scene_pos is None:
@@ -47,6 +41,59 @@ class InfiniteAxesView(QGraphicsView):
 		self.translate(anchor_scene_pos.x(), anchor_scene_pos.y())
 		self.scale(factor, factor)
 		self.translate(-anchor_scene_pos.x(), -anchor_scene_pos.y())
+
+		visible_rect = self.mapToScene(self.viewport().rect()).boundingRect()
+		approx_major_step = visible_rect.width() / 5.0
+		if approx_major_step > 0:
+			pow10 = 10 ** floor(log10(approx_major_step))
+			ratio = approx_major_step / pow10
+
+			if ratio < 2:
+				self.major_step = 1.0 * pow10
+			elif ratio < 5:
+				self.major_step = 2.0 * pow10
+			else:
+				self.major_step = 5.0 * pow10
+
+			self.minor_step = self.major_step / 5.0
+
+	def drawBackground(self, painter: QPainter, rect: QRectF | QRect) -> None:
+		super().drawBackground(painter, rect)
+		painter.save()
+		painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+
+		left_start = floor(rect.left() / self.minor_step) * self.minor_step
+		right_end = ceil(rect.right() / self.minor_step) * self.minor_step
+		top_start = floor(rect.top() / self.minor_step) * self.minor_step
+		bottom_end = ceil(rect.bottom() / self.minor_step) * self.minor_step
+
+		x = left_start
+		while x <= right_end:
+			if isclose(x, 0.0, abs_tol=self.minor_step * 0.1):
+				x += self.minor_step
+				continue
+			is_major = isclose(x % self.major_step, 0, abs_tol=self.minor_step * 0.1) or isclose(x % self.major_step, self.major_step, abs_tol=self.minor_step * 0.1)
+			painter.setPen(self.major_pen if is_major else self.minor_pen)
+			painter.drawLine(QLineF(x, rect.top(), x, rect.bottom()))
+			x += self.minor_step
+
+		y = top_start
+		while y <= bottom_end:
+			if isclose(y, 0.0, abs_tol=self.minor_step * 0.1):
+				y += self.minor_step
+				continue
+			is_major = isclose(y % self.major_step, 0, abs_tol=self.minor_step * 0.1) or isclose(y % self.major_step, self.major_step, abs_tol=self.minor_step * 0.1)
+			painter.setPen(self.major_pen if is_major else self.minor_pen)
+			painter.drawLine(QLineF(rect.left(), y, rect.right(), y))
+			y += self.minor_step
+
+		painter.setPen(self.axis_pen)
+		if rect.left() <= 0 <= rect.right():
+			painter.drawLine(QLineF(0, rect.top(), 0, rect.bottom()))
+		if rect.top() <= 0 <= rect.bottom():
+			painter.drawLine(QLineF(rect.left(), 0, rect.right(), 0))
+
+		painter.restore()
 
 	def keyPressEvent(self, event) -> None:
 		zoom_in_factor = 1.1
@@ -81,23 +128,31 @@ class NDimLabWindow(QMainWindow):
 		self.setWindowTitle("NDimLab")
 		self.paused: bool = begin_paused
 		self.scene_entities: list[SceneEntity] = []
-		self.has_reset = True
+		self._has_reset = True
+		self._debug_mode = False
 
 		# --- MenuBar Actions ---
 		pause_action = QAction("&Pause", self)
-		pause_action.toggled.connect(self.pause_button_clicked)
 		pause_action.setCheckable(True)
-		pause_action.setChecked(self.paused)
+		pause_action.toggled.connect(self.pause_button_clicked)
 
 		self.physics_step_action = QAction("&Step", self)
 		self.physics_step_action.triggered.connect(self.physics_step_clicked)
 		self.physics_step_action.setEnabled(False)
+		pause_action.setChecked(self.paused)
+
+		debug_action = QAction("&Debug", self)
+		debug_action.setCheckable(True)
+		debug_action.toggled.connect(self.toggle_debug)
+		debug_action.setChecked(self._debug_mode)
+		debug_action.setShortcut("F3")
 
 		# --- MenuBar ---
 		menuBar = self.menuBar()
 		pause_menu = menuBar.addMenu("&Menu")
 		pause_menu.addAction(pause_action)
 		pause_menu.addAction(self.physics_step_action)
+		pause_menu.addAction(debug_action)
 
 		# --- Scene + View ---
 		self.scene = QGraphicsScene()
@@ -123,9 +178,16 @@ class NDimLabWindow(QMainWindow):
 		self.setCentralWidget(central)
 		layout.addWidget(self.view)
 
+		# --- Debug Overlay ---
+		self.overlay = DebugOverlay(self.view)
+		self.overlay.hide()
+
 		# --- Timers ---
 		self.timer = QElapsedTimer()
 		self.timer.start()
+		self._tick_duration_samples: deque[tuple[float, float]] = deque()
+		self._tick_duration_window_timer = QElapsedTimer()
+		self._tick_duration_window_timer.start()
 
 		self.accumulator = 0.0
 		self.dt = 1.0 / 60.0
@@ -134,11 +196,17 @@ class NDimLabWindow(QMainWindow):
 		self.frame_timer.timeout.connect(self.tick)
 		self.frame_timer.start(0)
 
+	def resizeEvent(self, event) -> None:
+		super().resizeEvent(event)
+		# margin = 10
+		x = self.view.viewport().width() - self.overlay.width()
+		self.overlay.move(x, 0)
+
 	def update_scene_entities(self) -> None:
-		if self.has_reset:
+		if self._has_reset:
 			for entity in self.scene_entities:
 				entity.apply_one_shot()
-			self.has_reset = False
+			self._has_reset = False
 
 		for entity in self.scene_entities:
 			entity.apply_continuous()
@@ -146,6 +214,14 @@ class NDimLabWindow(QMainWindow):
 	def tick(self) -> None:
 		elapsed = self.timer.nsecsElapsed() / 1e9
 		self.timer.restart()
+
+		now = self._tick_duration_window_timer.nsecsElapsed() / 1e9
+		self._tick_duration_samples.append((now, elapsed))
+		while self._tick_duration_samples and now - self._tick_duration_samples[0][0] > 1.0:
+			self._tick_duration_samples.popleft()
+
+		average_elapsed = sum(sample_elapsed for _, sample_elapsed in self._tick_duration_samples) / len(self._tick_duration_samples)
+		self.overlay.update_metrics(f"Tick Duration: {average_elapsed * 1000:.2f} ms")
 
 		if not self.paused:
 			self.accumulator += elapsed
@@ -162,6 +238,33 @@ class NDimLabWindow(QMainWindow):
 
 	def physics_step_clicked(self) -> None:
 		self.update_scene_entities()
+
+	def toggle_debug(self, checked: bool) -> None:
+		self._debug_mode = checked
+		self.overlay.setVisible(checked)
+
+
+class DebugOverlay(QWidget):
+	def __init__(self, parent=None) -> None:
+		super().__init__(parent)
+
+		# Translucent background
+		self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+		self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+		self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+
+		# Layout
+		layout = QVBoxLayout(self)
+		layout.setContentsMargins(0, 0, 0, 0)  # No layout padding
+		self.metrics_label = QLabel("Tick Duration: _")
+		self.metrics_label.setStyleSheet("color: #00FF00; background-color: rgba(20, 20, 20, 150); padding: 5px;")
+
+		layout.addWidget(self.metrics_label)
+
+		self.setFixedSize(170, 25)
+
+	def update_metrics(self, text) -> None:
+		self.metrics_label.setText(text)
 
 
 @dataclass
@@ -375,7 +478,7 @@ if __name__ == "__main__":
 	)
 
 	app = QApplication(sys.argv)
-	window = NDimLabWindow(scale=30)
+	window = NDimLabWindow(begin_paused=False, scale=30)
 
 	squares: list[SceneEntity] = []
 	squares.append(SceneEntity(window.scene, sq1))
