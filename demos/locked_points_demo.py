@@ -82,8 +82,6 @@ rotation_T = rotation.T
 
 
 def update_polygon() -> None:
-	global unit_square, unit_square_child
-
 	# Rotate parent
 	unit_square[:] = unit_square @ rotation_T
 
@@ -112,7 +110,7 @@ dt = 1.0 / 30.0  # fixed physics timestep
 
 
 def tick() -> None:
-	global accumulator, timer
+	global accumulator  # noqa: PLW0603
 
 	elapsed = timer.nsecsElapsed() / 1e9
 	timer.restart()

@@ -6,23 +6,23 @@ def vec_to_homogeneous(arr: NDArray) -> NDArray:
 	# --- Case 1: single vector (n,) ---
 	if arr.ndim == 1:
 		n = arr.shape[0]
-		H = np.eye(n + 1, dtype=arr.dtype)
-		H[-1, :-1] = arr
-		return H
+		h = np.eye(n + 1, dtype=arr.dtype)
+		h[-1, :-1] = arr
+		return h
 
 	# --- Case 2: batch of vectors (m, n) ---
 	elif arr.ndim == 2:
 		m, n = arr.shape
-		H = np.zeros((m, n + 1, n + 1), dtype=arr.dtype)
+		h = np.zeros((m, n + 1, n + 1), dtype=arr.dtype)
 
 		# Fill identity blocks
 		idx = np.arange(n + 1)
-		H[:, idx, idx] = 1
+		h[:, idx, idx] = 1
 
 		# Insert translation vectors
-		H[:, -1, :-1] = arr
+		h[:, -1, :-1] = arr
 
-		return H
+		return h
 
 	else:
 		raise ValueError("Input must be shape (n,) or (m,n)")

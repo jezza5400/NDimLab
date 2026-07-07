@@ -407,23 +407,23 @@ def vec_to_homogeneous(arr: NDArray) -> NDArray:
 	# --- Case 1: single vector (n,) ---
 	if arr.ndim == 1:
 		n = arr.shape[0]
-		H = np.eye(n + 1, dtype=arr.dtype)
-		H[-1, :-1] = arr
-		return H
+		h = np.eye(n + 1, dtype=arr.dtype)
+		h[-1, :-1] = arr
+		return h
 
 	# --- Case 2: batch of vectors (m, n) ---
 	elif arr.ndim == 2:
 		m, n = arr.shape
-		H = np.zeros((m, n + 1, n + 1), dtype=arr.dtype)
+		h = np.zeros((m, n + 1, n + 1), dtype=arr.dtype)
 
 		# Fill identity blocks
 		idx = np.arange(n + 1)
-		H[:, idx, idx] = 1
+		h[:, idx, idx] = 1
 
 		# Insert translation vectors
-		H[:, -1, :-1] = arr
+		h[:, -1, :-1] = arr
 
-		return H
+		return h
 
 	else:
 		raise ValueError("Input must be shape (n,) or (m,n)")
@@ -454,28 +454,22 @@ def linear_to_homogeneous(arr: NDArray) -> NDArray:
 
 
 if __name__ == "__main__":
-	sq1: NDArray = np.array(
-		[
-			[0, 0],
-			[1, 0],
-			[1, 1],
-			[0, 1],
-		],
-		dtype=float,
-	)
+	# fmt: off
+	sq1: NDArray = np.array([
+		[0, 0],
+		[1, 0],
+		[1, 1],
+		[0, 1],
+	], dtype=float)
+	# fmt: on
 
 	theta = pi / 180
-	t0: Transformation = Transformation(
-		np.array(
-			[
-				[cos(theta), -sin(theta)],
-				[sin(theta), cos(theta)],
-			],
-			dtype=float,
-		),
-		True,
-		column_major=True,
-	)
+	# fmt: off
+	t0: Transformation = Transformation(np.array([
+		[cos(theta), -sin(theta)],
+		[sin(theta), cos(theta)],
+	], dtype=float), True, column_major=True)
+	# fmt: on
 
 	app = QApplication(sys.argv)
 	window = NDimLabWindow(begin_paused=False, scale=30)
@@ -488,21 +482,14 @@ if __name__ == "__main__":
 	for i in range(1, 10):
 		squares.append(SceneEntity(window.scene, sq1, fixed_point=FixedPoint(0, squares[i - 1], 2)))
 		squares[i].add_to_scene(i + 1, QColor(randint(0, 255), randint(0, 255), randint(0, 255)))
-		squares[i].add_transformation(
-			Transformation(
-				np.array(
-					[
-						[cos((i + 1) * theta), -sin((i + 1) * theta)],
-						[sin((i + 1) * theta), cos((i + 1) * theta)],
-					],
-					dtype=float,
-				),
-				True,
-				column_major=True,
-			)
-		)
+		# fmt: off
+		squares[i].add_transformation(Transformation(np.array([
+			[cos((i + 1) * theta), -sin((i + 1) * theta)],
+			[sin((i + 1) * theta), cos((i + 1) * theta)],
+		], dtype=float), True, column_major=True))
+		# fmt: on
 		squares[i].compute_transformations()
 
 	window.scene_entities.extend(squares)
 	window.show()
-	app.exec()
+	sys.exit(app.exec())
