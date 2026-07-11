@@ -96,3 +96,55 @@ To keep performance perfectly smooth, separate **Rendering Math** from **UI Logi
 - **Zero Precision Drift:** Because you always multiply the *original* base points by a freshly calculated total matrix, you avoid the cumulative floating-point rounding errors that warp shapes over time.
 - **Minimal PCIe Traffic:** You stream 64 bytes (the $4\times4$ matrix) per frame instead of hundreds of kilobytes of modified point coordinates.
 - **Infinite Scalability:** OpenGL handles the hardware core distribution automatically. The exact same code will instantly scale from an Intel integrated GPU up to a dedicated desktop graphics card without modifications.
+
+## QOpenGLWindow/QOpenGLWidget execution order
+
+- **`initializeGL()`** is guaranteed to run once before the first time resizeGL() or paintGL() is called.
+- **`initializeGL()`** can technically be called again if the underlying GL context is destroyed and recreated. (e.g. some GPU driver resets or screen/adapter changes)
+- **`resizeGL()`** fires whenever the widget is resized, and also on first show, since new widgets get an automatic resize event.
+- **`update()`** is the correct way to *request* a repaint from outside `paintGL()` but as it's *asynchronous*: it schedules a repaint on the event loop rather than calling `paintGL()` directly.
+
+```mermaid
+---
+config:
+  layout: dagre
+---
+flowchart TB
+    subgraph SETUP["Startup (runs once)"]
+        direction TB
+        A(["Program Start"]) --> B["__init__()"]
+        B --> C["Python sets up instance variables\n(no GL context yet)"]
+        C --> D["window.show()"]
+        D --> E["OS creates native window + GL context"]
+        E --> F["initializeGL()\ncompile shaders, upload VBOs/textures"]
+        F --> G["resizeGL(w, h)\nset viewport & projection"]
+        G --> H["paintGL()\nfirst frame rendered"]
+    end
+
+    H --> LOOP{"Event Loop\n(Qt waits for next event)"}
+
+    subgraph RUNTIME["Runtime Loop (repeats)"]
+        direction TB
+        LOOP -->|Window resized| RZ["resizeGL(w, h)"]
+        RZ --> SCHED["Qt auto-schedules a repaint"]
+        LOOP -->|Key / Mouse event| EV["keyPressEvent() / mouseMoveEvent() / etc."]
+        EV --> UPD["self.update()"]
+        LOOP -->|Timer / animation tick| TMR["QTimer callback"]
+        TMR --> UPD
+        LOOP -->|Nothing pending| IDLE["Idle — CPU free, no draw"]
+        IDLE --> LOOP
+        SCHED --> PG["paintGL() runs again"]
+        UPD --> PG
+        PG --> LOOP
+    end
+
+    classDef setupNode fill:#cfe8ff,stroke:#4a90d9,stroke-width:1px,color:#1a1a1a;
+    classDef loopNode fill:#ffe3b3,stroke:#d98e2b,stroke-width:1px,color:#1a1a1a;
+    classDef decision fill:#e0c3fc,stroke:#8e44ad,stroke-width:1px,color:#1a1a1a;
+    classDef idleNode fill:#e0e0e0,stroke:#888,stroke-width:1px,color:#1a1a1a;
+
+    class A,B,C,D,E,F,G,H setupNode;
+    class RZ,SCHED,EV,UPD,TMR,PG loopNode;
+    class LOOP decision;
+    class IDLE idleNode;
+```
