@@ -1,12 +1,10 @@
-from shutil import move
 from dataclasses import dataclass
 from typing import cast
-import math
 from PySide6.QtOpenGL import QOpenGLWindow
 import sys
 from pathlib import Path
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QSurfaceFormat, QWindow, QKeyEvent
+from PySide6.QtCore import Qt, QTimer, QPointF
+from PySide6.QtGui import QSurfaceFormat, QWindow, QKeyEvent, QMouseEvent
 from PySide6.QtWidgets import QApplication
 import moderngl as mgl
 import numpy as np
@@ -37,7 +35,12 @@ class OpenGLWindow(QOpenGLWindow):
 
 		self.zoom_level = 30
 		self.OG_ZOOM = self.zoom_level
-		self.camera_pos = (0, 0)
+		self.camera_pos: tuple[int | float, int | float] = (0, 0)
+		self.mouse_pos = cast(QPointF, None)
+		self.mouse_pressed: bool = False
+		self.is_panning = False
+		self.is_zooming = False
+		self.pressed_keys = set()
 
 		self.ctx = cast(mgl.Context, None)
 
@@ -82,13 +85,27 @@ class OpenGLWindow(QOpenGLWindow):
 		self.ctx.screen.use()
 		self.ctx.clear(0.0, 0.0, 0.0, 1.0)
 
-		# Pass 1: Render static baked background image
-		self.grid_texture.use(location=0)
+		if self.is_panning or self.is_zooming or self.grid_texture is None:
+			ratio = self.devicePixelRatio()
+			w, h = int(self.width() * ratio), int(self.height() * ratio)
 
-		# Disable depth testing while drawing background to avoid masking foreground elements
-		self.ctx.disable(mgl.DEPTH_TEST)
-		self.tex_vao.render(mgl.TRIANGLES)
-		self.ctx.enable(mgl.DEPTH_TEST)
+			self.u_bg_resolution.value = (w, h)
+			self.u_bg_camera_pos.value = (self.camera_pos[0], self.camera_pos[1])
+			self.u_bg_zoom.value = self.zoom_level
+
+			self.ctx.disable(mgl.DEPTH_TEST)
+			self.bg_vao.render(mgl.TRIANGLES)
+			self.ctx.enable(mgl.DEPTH_TEST)
+		else:
+			# Pass 1: Render static baked background image
+			self.grid_texture.use(location=0)
+
+			# Disable depth testing while drawing background to avoid masking foreground elements
+			self.ctx.disable(mgl.DEPTH_TEST)
+			self.tex_vao.render(mgl.TRIANGLES)
+			self.ctx.enable(mgl.DEPTH_TEST)
+
+		# Render foreground shapes here
 
 	def resizeGL(self, w: int, h: int) -> None:
 		ratio = self.devicePixelRatio()
@@ -101,34 +118,78 @@ class OpenGLWindow(QOpenGLWindow):
 	def keyPressEvent(self, arg__1: QKeyEvent) -> None:
 		moved = False
 		zoom_in_factor = 1.1
+		is_zoom_key = False
 
 		if arg__1.modifiers() & Qt.KeyboardModifier.ControlModifier and arg__1.key() in (Qt.Key.Key_Equal, Qt.Key.Key_Plus):
 			self.zoom_level *= zoom_in_factor
 			moved = True
-		if arg__1.modifiers() & Qt.KeyboardModifier.ControlModifier and arg__1.key() == Qt.Key.Key_Minus:
+			is_zoom_key = True
+		elif arg__1.modifiers() & Qt.KeyboardModifier.ControlModifier and arg__1.key() == Qt.Key.Key_Minus:
 			self.zoom_level *= 1 / zoom_in_factor
 			moved = True
-		if arg__1.modifiers() & Qt.KeyboardModifier.ControlModifier and arg__1.key() == Qt.Key.Key_0:
+			is_zoom_key = True
+		elif arg__1.modifiers() & Qt.KeyboardModifier.ControlModifier and arg__1.key() == Qt.Key.Key_0:
 			self.zoom_level = self.OG_ZOOM
 			moved = True
-		if arg__1.key() == Qt.Key.Key_W:
+		elif arg__1.modifiers() & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier) and arg__1.key() == Qt.Key.Key_ParenRight:
+			self.camera_pos = (0, 0)
+			moved = True
+		elif arg__1.key() == Qt.Key.Key_W:
 			self.camera_pos = (self.camera_pos[0], self.camera_pos[1] + 1)
 			moved = True
-		if arg__1.key() == Qt.Key.Key_A:
+		elif arg__1.key() == Qt.Key.Key_A:
 			self.camera_pos = (self.camera_pos[0] - 1, self.camera_pos[1])
 			moved = True
 		elif arg__1.key() == Qt.Key.Key_S:
 			self.camera_pos = (self.camera_pos[0], self.camera_pos[1] - 1)
 			moved = True
-		if arg__1.key() == Qt.Key.Key_D:
+		elif arg__1.key() == Qt.Key.Key_D:
 			self.camera_pos = (self.camera_pos[0] + 1, self.camera_pos[1])
 			moved = True
 
 		if moved:
+			self.pressed_keys.add(arg__1.key())
+			if is_zoom_key:
+				self.is_zooming = True
+				self.update()
+			else:
+				self.bake_grid()
+				self.update()
+
+		super().keyPressEvent(arg__1)
+
+	def keyReleaseEvent(self, arg__1: QKeyEvent) -> None:
+		self.pressed_keys.discard(arg__1.key())
+		if self.is_zooming and not (Qt.Key.Key_Minus in self.pressed_keys or Qt.Key.Key_Plus in self.pressed_keys or Qt.Key.Key_Equal in self.pressed_keys):
+			self.is_zooming = False
 			self.bake_grid()
 			self.update()
 
-		super().keyPressEvent(arg__1)
+		super().keyReleaseEvent(arg__1)
+
+	def mousePressEvent(self, arg__1: QMouseEvent) -> None:
+		self.mouse_pos = arg__1.position()
+
+		super().mousePressEvent(arg__1)
+
+	def mouseReleaseEvent(self, arg__1: QMouseEvent) -> None:
+		if arg__1.button() == Qt.MouseButton.LeftButton and self.is_panning:
+			self.is_panning = False
+			self.bake_grid()
+			self.update()
+
+		super().mouseReleaseEvent(arg__1)
+
+	def mouseMoveEvent(self, arg__1: QMouseEvent) -> None:
+		if arg__1.buttons() == Qt.MouseButton.LeftButton:
+			self.is_panning = True
+			mouse_mov = [arg__1.position().x() - self.mouse_pos.x(), arg__1.position().y() - self.mouse_pos.y()]
+			mouse_mov = [x / self.zoom_level / self.devicePixelRatio() for x in mouse_mov]
+			self.mouse_pos = arg__1.position()
+			self.camera_pos = (self.camera_pos[0] - mouse_mov[0], self.camera_pos[1] + mouse_mov[1])
+			self.update()
+
+		super().mouseMoveEvent(arg__1)
 
 	def bake_grid(self, w: int | None = None, h: int | None = None) -> None:
 		if not w or not h:
