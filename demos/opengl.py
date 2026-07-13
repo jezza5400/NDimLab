@@ -1,10 +1,9 @@
-from dataclasses import dataclass
 from typing import cast
 from PySide6.QtOpenGL import QOpenGLWindow
 import sys
 from pathlib import Path
 from PySide6.QtCore import Qt, QTimer, QPointF
-from PySide6.QtGui import QSurfaceFormat, QWindow, QKeyEvent, QMouseEvent
+from PySide6.QtGui import QSurfaceFormat, QWindow, QKeyEvent, QMouseEvent, QCloseEvent
 from PySide6.QtWidgets import QApplication
 import moderngl as mgl
 import numpy as np
@@ -79,6 +78,9 @@ class OpenGLWindow(QOpenGLWindow):
 		# self.timer.start(16)
 
 	def paintGL(self) -> None:
+		if self.ctx is None:
+			return
+
 		self.makeCurrent()
 
 		# Clear color and depth buffers of on-screen framebuffer
@@ -108,12 +110,23 @@ class OpenGLWindow(QOpenGLWindow):
 		# Render foreground shapes here
 
 	def resizeGL(self, w: int, h: int) -> None:
+		if self.ctx is None:
+			return
+
 		ratio = self.devicePixelRatio()
 		phys_w, phys_h = int(w * ratio), int(h * ratio)
 		self.ctx.viewport = (0, 0, phys_w, phys_h)
 
 		# Rebake background grid texture
 		self.bake_grid(phys_w, phys_h)
+
+	def closeEvent(self, arg__1: QCloseEvent) -> None:
+		if self.grid_texture:
+			self.grid_texture.release()
+			self.grid_texture = None
+		self.ctx = None
+
+		super().closeEvent(arg__1)
 
 	def keyPressEvent(self, arg__1: QKeyEvent) -> None:
 		moved = False
@@ -192,6 +205,10 @@ class OpenGLWindow(QOpenGLWindow):
 		super().mouseMoveEvent(arg__1)
 
 	def bake_grid(self, w: int | None = None, h: int | None = None) -> None:
+		if self.ctx is None:
+			print("Cannot bake grid when context is None, Returning.", file=sys.stderr)
+			return
+
 		if not w or not h:
 			ratio = self.devicePixelRatio()
 			w, h = int(self.width() * ratio), int(self.height() * ratio)
