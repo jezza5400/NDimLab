@@ -1,125 +1,278 @@
+from PySide6.QtOpenGLWidgets import QOpenGLWidget
+from PySide6.QtOpenGL import QOpenGLWindow
+from PySide6.QtCore import Qt, QPointF, QLineF, QTimer, QElapsedTimer, QRectF, QRect
+from PySide6.QtGui import QAction, QPen, QPolygonF, QPainter, QColor, QWheelEvent, QSurfaceFormat, QKeyEvent, QMouseEvent, QCloseEvent
+from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QGraphicsScene, QGraphicsView, QGraphicsPolygonItem, QLabel, QHBoxLayout
 from random import randint
 from typing import cast
-from collections.abc import Iterable
 from collections import deque
+from collections.abc import Iterable
 from dataclasses import dataclass
 import sys
+import moderngl as mgl
 import numpy as np
 from numpy.typing import NDArray
 from math import cos, sin, pi, log10, floor, isclose, ceil
-from PySide6.QtCore import Qt, QPointF, QLineF, QTimer, QElapsedTimer, QRectF, QRect
-from PySide6.QtGui import QAction, QPen, QPolygonF, QPainter, QColor, QWheelEvent
-from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QGraphicsScene, QGraphicsView, QGraphicsPolygonItem, QLabel
+from pathlib import Path
+
+
+def load_shader(path: Path) -> str:
+	return Path(path).read_text(encoding="utf-8")
+
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+GRID_VERT_SHADER = load_shader(SCRIPT_DIR / "shaders" / "grid.vert")
+GRID_FRAG_SHADER = load_shader(SCRIPT_DIR / "shaders" / "grid.frag")
+TEXTURE_VERT = load_shader(SCRIPT_DIR / "shaders" / "texture.vert")
+TEXTURE_FRAG = load_shader(SCRIPT_DIR / "shaders" / "texture.frag")
+
+# fmt: off
+BG_VERTS = np.array([
+	-1.0, -1.0, 1.0, -1.0, 1.0, 1.0,
+	-1.0, -1.0, 1.0, 1.0, -1.0, 1.0
+], dtype="f4")
+# fmt: on
 
 
 class ViewAxisMarkers:
 	def __init__(self, visible: bool, major: bool, minor: bool, size_pct: int | float): ...
 
 
-class InfiniteAxesView(QGraphicsView):
-	def __init__(self, axis_markers: bool = False, *args, **kwargs):
-		super().__init__(*args, **kwargs)
+class OpenGLWidget(QOpenGLWidget):
+	def __init__(self, parent: QWidget | None = None) -> None:
+		super().__init__(parent=parent)
 
-		self.axis_markers: bool = axis_markers
+		self.zoom_level = 30
+		self.OG_ZOOM = self.zoom_level
+		self.camera_pos: tuple[int | float, int | float] = (0, 0)
+		self.mouse_pos = cast(QPointF, None)
+		self.mouse_pressed: bool = False
+		self.is_panning = False
+		self.is_zooming = False
+		self.pressed_keys = set()
 
-		self.major_pen = QPen(QColor("#666666"), 1, Qt.PenStyle.SolidLine)
-		self.major_pen.setCosmetic(True)
+		self._paint_clock = QElapsedTimer()
+		self._paint_clock.start()
+		self.last_frame_ms: float | None = None
 
-		self.minor_pen = QPen(QColor("#1F1F1F"), 1, Qt.PenStyle.SolidLine)
-		self.minor_pen.setCosmetic(True)
+		self.ctx = cast(mgl.Context, None)
 
-		self.axis_pen = QPen(QColor("#E6E6E6"), 2, Qt.PenStyle.SolidLine)
-		self.axis_pen.setCosmetic(True)
+		# --- Background Grid ---
+		self.bg_prog = cast(mgl.Program, None)
+		self.bg_vbo = cast(mgl.Buffer, None)
+		self.bg_vao = cast(mgl.VertexArray, None)
 
-		self.major_step: float = 5.0
-		self.minor_step: float = self.major_step / 5.0
+		# --- Framebuffer and texture storage
+		self.fbo = cast(mgl.Framebuffer, None)
+		self.grid_texture = cast(mgl.Texture, None)
 
-	def _zoom(self, factor: float, anchor_scene_pos: QPointF | None = None) -> None:
-		if anchor_scene_pos is None:
-			anchor_scene_pos = self.mapToScene(self.viewport().rect().center())
+		# --- Shader and VAO to draw static texture
+		self.tex_prog = cast(mgl.Program, None)
+		self.tex_vao = cast(mgl.VertexArray, None)
 
-		self.translate(anchor_scene_pos.x(), anchor_scene_pos.y())
-		self.scale(factor, factor)
-		self.translate(-anchor_scene_pos.x(), -anchor_scene_pos.y())
+		# --- Widget setup ---
+		self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+		self.setMinimumSize(200, 200)
 
-		visible_rect = self.mapToScene(self.viewport().rect()).boundingRect()
-		approx_major_step = visible_rect.width() / 5.0
-		if approx_major_step > 0:
-			pow10 = 10 ** floor(log10(approx_major_step))
-			ratio = approx_major_step / pow10
+	def initializeGL(self) -> None:
+		self.makeCurrent()
+		self.ctx = mgl.create_context()
+		self.ctx.enable(mgl.DEPTH_TEST)
 
-			if ratio < 2:
-				self.major_step = 1.0 * pow10
-			elif ratio < 5:
-				self.major_step = 2.0 * pow10
-			else:
-				self.major_step = 5.0 * pow10
+		self.screen_fbo = self.ctx.detect_framebuffer(self.defaultFramebufferObject())
 
-			self.minor_step = self.major_step / 5.0
+		self.bg_prog = self.ctx.program(vertex_shader=GRID_VERT_SHADER, fragment_shader=GRID_FRAG_SHADER)
+		self.u_bg_resolution = cast(mgl.Uniform, self.bg_prog["u_resolution"])
+		self.u_bg_zoom = cast(mgl.Uniform, self.bg_prog["u_zoom"])
+		self.u_bg_camera_pos = cast(mgl.Uniform, self.bg_prog["u_camera_pos"])
 
-	def drawBackground(self, painter: QPainter, rect: QRectF | QRect) -> None:
-		super().drawBackground(painter, rect)
-		painter.save()
-		painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+		self.bg_vbo = self.ctx.buffer(BG_VERTS.tobytes())
+		self.bg_vao = self.ctx.vertex_array(self.bg_prog, [(self.bg_vbo, "2f", "inPosition")])
 
-		left_start = floor(rect.left() / self.minor_step) * self.minor_step
-		right_end = ceil(rect.right() / self.minor_step) * self.minor_step
-		top_start = floor(rect.top() / self.minor_step) * self.minor_step
-		bottom_end = ceil(rect.bottom() / self.minor_step) * self.minor_step
+		self.tex_prog = self.ctx.program(vertex_shader=TEXTURE_VERT, fragment_shader=TEXTURE_FRAG)
+		self.tex_vao = self.ctx.vertex_array(self.tex_prog, [(self.bg_vbo, "2f", "inPosition")])
 
-		x = left_start
-		while x <= right_end:
-			if isclose(x, 0.0, abs_tol=self.minor_step * 0.1):
-				x += self.minor_step
-				continue
-			is_major = isclose(x % self.major_step, 0, abs_tol=self.minor_step * 0.1) or isclose(x % self.major_step, self.major_step, abs_tol=self.minor_step * 0.1)
-			painter.setPen(self.major_pen if is_major else self.minor_pen)
-			painter.drawLine(QLineF(x, rect.top(), x, rect.bottom()))
-			x += self.minor_step
+		# initial layout-baking
+		if self.width() > 0 and self.height() > 0:
+			self.bake_grid()
 
-		y = top_start
-		while y <= bottom_end:
-			if isclose(y, 0.0, abs_tol=self.minor_step * 0.1):
-				y += self.minor_step
-				continue
-			is_major = isclose(y % self.major_step, 0, abs_tol=self.minor_step * 0.1) or isclose(y % self.major_step, self.major_step, abs_tol=self.minor_step * 0.1)
-			painter.setPen(self.major_pen if is_major else self.minor_pen)
-			painter.drawLine(QLineF(rect.left(), y, rect.right(), y))
-			y += self.minor_step
+		# --- Timers ---
+		# self.timer = QTimer()
+		# self.timer.timeout.connect(self.fixed_update)
+		# self.timer.start(16)
 
-		painter.setPen(self.axis_pen)
-		if rect.left() <= 0 <= rect.right():
-			painter.drawLine(QLineF(0, rect.top(), 0, rect.bottom()))
-		if rect.top() <= 0 <= rect.bottom():
-			painter.drawLine(QLineF(rect.left(), 0, rect.right(), 0))
+	def paintGL(self) -> None:
+		if self.ctx is None:
+			return
 
-		painter.restore()
+		self.last_frame_ms = self._paint_clock.restart()
 
-	def keyPressEvent(self, event) -> None:
+		self.makeCurrent()
+
+		# Clear color and depth buffers of on-screen framebuffer
+		self.screen_fbo.use()
+		self.ctx.clear(0.0, 0.0, 0.0, 1.0)
+
+		if self.is_panning or self.is_zooming or self.grid_texture is None:
+			ratio = self.devicePixelRatioF()
+			w, h = int(self.width() * ratio), int(self.height() * ratio)
+
+			self.u_bg_resolution.value = (w, h)
+			self.u_bg_camera_pos.value = (self.camera_pos[0], self.camera_pos[1])
+			self.u_bg_zoom.value = self.zoom_level
+
+			self.ctx.disable(mgl.DEPTH_TEST)
+			self.bg_vao.render(mgl.TRIANGLES)
+			self.ctx.enable(mgl.DEPTH_TEST)
+		else:
+			# Pass 1: Render static baked background image
+			self.grid_texture.use(location=0)
+
+			# Disable depth testing while drawing background to avoid masking foreground elements
+			self.ctx.disable(mgl.DEPTH_TEST)
+			self.tex_vao.render(mgl.TRIANGLES)
+			self.ctx.enable(mgl.DEPTH_TEST)
+
+		# Render foreground shapes here
+
+	def resizeGL(self, w: int, h: int) -> None:
+		if self.ctx is None:
+			return
+
+		ratio = self.devicePixelRatioF()
+		phys_w, phys_h = int(w * ratio), int(h * ratio)
+		self.ctx.viewport = (0, 0, phys_w, phys_h)
+
+		# re-detect FBO (in case Qt swapped FBOs on resize)
+		self.screen_fbo = self.ctx.detect_framebuffer(self.defaultFramebufferObject())
+		self.ctx.viewport = (0, 0, phys_w, phys_h)
+
+		# Rebake background grid texture
+		self.bake_grid(phys_w, phys_h)
+
+	def closeEvent(self, event: QCloseEvent) -> None:
+		if self.grid_texture:
+			self.grid_texture.release()
+			self.grid_texture = None
+		self.ctx = None
+
+		super().closeEvent(event)
+
+	def keyPressEvent(self, event: QKeyEvent) -> None:
+		moved = False
 		zoom_in_factor = 1.1
-		zoom_out_factor = 1 / zoom_in_factor
+		is_zoom_key = False
 
 		if event.modifiers() & Qt.KeyboardModifier.ControlModifier and event.key() in (Qt.Key.Key_Equal, Qt.Key.Key_Plus):
-			self._zoom(zoom_in_factor)
-			return
-		if event.modifiers() & Qt.KeyboardModifier.ControlModifier and event.key() == Qt.Key.Key_Minus:
-			self._zoom(zoom_out_factor)
-			return
+			self.zoom_level *= zoom_in_factor
+			moved = True
+			is_zoom_key = True
+		elif event.modifiers() & Qt.KeyboardModifier.ControlModifier and event.key() == Qt.Key.Key_Minus:
+			self.zoom_level *= 1 / zoom_in_factor
+			moved = True
+			is_zoom_key = True
+		elif event.modifiers() & Qt.KeyboardModifier.ControlModifier and event.key() == Qt.Key.Key_0:
+			self.zoom_level = self.OG_ZOOM
+			moved = True
+		elif event.modifiers() & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier) and event.key() == Qt.Key.Key_ParenRight:
+			self.camera_pos = (0, 0)
+			moved = True
+		elif event.key() == Qt.Key.Key_W:
+			self.camera_pos = (self.camera_pos[0], self.camera_pos[1] + 1)
+			moved = True
+		elif event.key() == Qt.Key.Key_A:
+			self.camera_pos = (self.camera_pos[0] - 1, self.camera_pos[1])
+			moved = True
+		elif event.key() == Qt.Key.Key_S:
+			self.camera_pos = (self.camera_pos[0], self.camera_pos[1] - 1)
+			moved = True
+		elif event.key() == Qt.Key.Key_D:
+			self.camera_pos = (self.camera_pos[0] + 1, self.camera_pos[1])
+			moved = True
+
+		if moved:
+			self.pressed_keys.add(event.key())
+			if is_zoom_key:
+				self.is_zooming = True
+				self.update()
+			else:
+				self.bake_grid()
+				self.update()
 
 		super().keyPressEvent(event)
 
-	def wheelEvent(self, event: QWheelEvent) -> None:
-		zoom_in_factor = 1.02
-		zoom_out_factor = 1 / zoom_in_factor
+	def keyReleaseEvent(self, event: QKeyEvent) -> None:
+		self.pressed_keys.discard(event.key())
+		if self.is_zooming and not (Qt.Key.Key_Minus in self.pressed_keys or Qt.Key.Key_Plus in self.pressed_keys or Qt.Key.Key_Equal in self.pressed_keys):
+			self.is_zooming = False
+			self.bake_grid()
+			self.update()
 
-		mouse_scene_pos = self.mapToScene(event.position().toPoint())
+		super().keyReleaseEvent(event)
 
-		if event.angleDelta().y() > 0:
-			self._zoom(zoom_in_factor, mouse_scene_pos)
-		else:
-			self._zoom(zoom_out_factor, mouse_scene_pos)
+	def mousePressEvent(self, event: QMouseEvent) -> None:
+		self.mouse_pos = event.position()
 
-		event.accept()
+		super().mousePressEvent(event)
+
+	def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+		if event.button() == Qt.MouseButton.LeftButton and self.is_panning:
+			self.is_panning = False
+			self.bake_grid()
+			self.update()
+
+		super().mouseReleaseEvent(event)
+
+	def mouseMoveEvent(self, event: QMouseEvent) -> None:
+		if event.buttons() == Qt.MouseButton.LeftButton:
+			self.is_panning = True
+			mouse_mov = [event.position().x() - self.mouse_pos.x(), event.position().y() - self.mouse_pos.y()]
+			mouse_mov = [x / self.zoom_level / self.devicePixelRatioF() for x in mouse_mov]
+			self.mouse_pos = event.position()
+			self.camera_pos = (self.camera_pos[0] - mouse_mov[0], self.camera_pos[1] + mouse_mov[1])
+			self.update()
+
+		super().mouseMoveEvent(event)
+
+	def bake_grid(self, w: int | None = None, h: int | None = None) -> None:
+		if self.ctx is None:
+			print("Cannot bake grid when context is None, Returning.", file=sys.stderr)
+			return
+
+		if not w or not h:
+			ratio = self.devicePixelRatioF()
+			w, h = int(self.width() * ratio), int(self.height() * ratio)
+
+		# Clean up old texture assets
+		if self.grid_texture:
+			self.grid_texture.release()
+			self.fbo.release()
+
+		# Create blank texture matching current window size
+		self.grid_texture = self.ctx.texture((w, h), components=4)
+		self.grid_texture.filter = (mgl.NEAREST, mgl.NEAREST)
+
+		# Create framebuffer container and link texture
+		self.fbo = self.ctx.framebuffer(color_attachments=[self.grid_texture])
+
+		# Temporarily bind to offscreen framebuffer
+		self.fbo.use()
+		self.fbo.clear(0.0, 0.0, 0.0, 1.0)
+
+		# Pass uniforms to the texture
+		self.u_bg_resolution.value = (w, h)
+		self.u_bg_camera_pos.value = (self.camera_pos[0], self.camera_pos[1])
+		self.u_bg_zoom.value = self.zoom_level
+
+		# Render the grid
+		self.bg_vao.render(mgl.TRIANGLES)
+
+	def fixed_update(self) -> None:
+		self.update()
+
+	def time_since_last_paint(self) -> int:
+		"""Milliseconds elapsed since paintGL() last ran."""
+		return self._paint_clock.elapsed()
 
 
 class NDimLabWindow(QMainWindow):
@@ -154,32 +307,25 @@ class NDimLabWindow(QMainWindow):
 		pause_menu.addAction(self.physics_step_action)
 		pause_menu.addAction(debug_action)
 
-		# --- Scene + View ---
-		self.scene = QGraphicsScene()
-		self.scene.setBackgroundBrush(Qt.GlobalColor.black)
-		self.scene.setSceneRect(-1e12, -1e12, 2e12, 2e12)
-		self.scene.setItemIndexMethod(QGraphicsScene.ItemIndexMethod.NoIndex)
-		self.view = InfiniteAxesView(axis_markers=True, scene=self.scene)
-		self.view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-		self.view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-		self.view.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
-		self.view.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-		self.view.setTransformationAnchor(QGraphicsView.ViewportAnchor.NoAnchor)  # AnchorViewCenter is default
-		self.view.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)  # NoAnchor is default
-		# Initial scaling and y-axis flip
-		anchor_scene_pos = self.view.mapToScene(self.view.viewport().rect().center())
-		self.view.translate(anchor_scene_pos.x(), anchor_scene_pos.y())
-		self.view.scale(scale, -scale)
-		self.view.translate(-anchor_scene_pos.x(), -anchor_scene_pos.y())
+		# --- Sidebar ---
+		sidebar = QWidget()
+		sidebar_layout = QVBoxLayout(sidebar)
+		sidebar_layout.addWidget(QLabel("<h2>Matrixes here</h2>"))
+		sidebar_layout.addWidget(QLabel("Dummy text"))
+		sidebar_layout.addStretch()
+
+		# --- OpenGL ---
+		self.opengl_widget = OpenGLWidget()
 
 		# --- Central widget + layout ---
-		central = QWidget()
-		layout = QVBoxLayout(central)
-		self.setCentralWidget(central)
-		layout.addWidget(self.view)
+		central_widget = QWidget()
+		main_layout = QHBoxLayout(central_widget)
+		self.setCentralWidget(central_widget)
+		main_layout.addWidget(sidebar, stretch=1)
+		main_layout.addWidget(self.opengl_widget, stretch=4)
 
 		# --- Debug Overlay ---
-		self.overlay = DebugOverlay(self.view)
+		self.overlay = DebugOverlay(self.opengl_widget)
 		self.overlay.hide()
 
 		# --- Timers ---
@@ -196,10 +342,26 @@ class NDimLabWindow(QMainWindow):
 		self.frame_timer.timeout.connect(self.tick)
 		self.frame_timer.start(0)
 
+		self.gl_interval_timer = QTimer()
+		self.gl_interval_timer.timeout.connect(self.update_gl_overlay)
+		self.gl_interval_timer.start(250)
+
+	def update_gl_overlay(self) -> None:
+		widget = self.opengl_widget
+		since_last = widget.time_since_last_paint()
+
+		IDLE_THRESHOLD_MS = 250
+
+		if widget.last_frame_ms is None or since_last > IDLE_THRESHOLD_MS:
+			self.overlay.update_gl_metrics(f"GL: idle ({since_last} ms)")
+		else:
+			fps = 1000.0 / widget.last_frame_ms if widget.last_frame_ms > 0 else 0.0
+			self.overlay.update_gl_metrics(f"GL Frame: {widget.last_frame_ms:.2f} ms ({fps:.0f} FPS)")
+
 	def resizeEvent(self, event) -> None:
 		super().resizeEvent(event)
-		# margin = 10
-		x = self.view.viewport().width() - self.overlay.width()
+		margin = 10
+		x = self.opengl_widget.size().width() - self.overlay.width()
 		self.overlay.move(x, 0)
 
 	def update_scene_entities(self) -> None:
@@ -230,7 +392,7 @@ class NDimLabWindow(QMainWindow):
 				self.update_scene_entities()
 				self.accumulator -= self.dt
 
-		self.view.viewport().update()
+		self.opengl_widget.update()
 
 	def pause_button_clicked(self, state: bool) -> None:
 		self.paused = state
@@ -255,16 +417,34 @@ class DebugOverlay(QWidget):
 
 		# Layout
 		layout = QVBoxLayout(self)
-		layout.setContentsMargins(0, 0, 0, 0)  # No layout padding
-		self.metrics_label = QLabel("Tick Duration: _")
-		self.metrics_label.setStyleSheet("color: #00FF00; background-color: rgba(20, 20, 20, 150); padding: 5px;")
+		layout.setContentsMargins(6, 4, 6, 4)
+		layout.setSpacing(2)
 
-		layout.addWidget(self.metrics_label)
+		# Metrics
+		label_style = "color: #00FF00; background: transparent;"
+		self.tick_duration = QLabel("Tick Duration: _")
+		self.tick_duration.setStyleSheet(label_style)
+		self.gl_paint_interval = QLabel("GL Frame Interval: _")
+		self.gl_paint_interval.setStyleSheet(label_style)
 
-		self.setFixedSize(170, 25)
+		layout.addWidget(self.tick_duration)
+		layout.addWidget(self.gl_paint_interval)
+
+		self.setFixedSize(170, 50)
+
+	def paintEvent(self, event) -> None:
+		painter = QPainter(self)
+		painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+		painter.setPen(Qt.PenStyle.NoPen)
+		painter.setBrush(QColor(20, 20, 20, 150))
+		painter.drawRoundedRect(self.rect(), 4, 4)
+		super().paintEvent(event)
 
 	def update_metrics(self, text) -> None:
-		self.metrics_label.setText(text)
+		self.tick_duration.setText(text)
+
+	def update_gl_metrics(self, text) -> None:
+		self.gl_paint_interval.setText(text)
 
 
 @dataclass
@@ -471,25 +651,33 @@ if __name__ == "__main__":
 	], dtype=float), True, column_major=True)
 	# fmt: on
 
+	fmt: QSurfaceFormat = QSurfaceFormat()
+	fmt.setSamples(4)  # 4x multisampling for anti-aliasing
+	fmt.setVersion(4, 6)
+	fmt.setProfile(QSurfaceFormat.OpenGLContextProfile.CoreProfile)
+	fmt.setDepthBufferSize(24)  # 24-bit depth buffer for self.ctx.enable(mgl.DEPTH_TEST) sorting
+	QSurfaceFormat.setDefaultFormat(fmt)
+
 	app = QApplication(sys.argv)
 	window = NDimLabWindow(begin_paused=False, scale=30)
 
-	squares: list[SceneEntity] = []
-	squares.append(SceneEntity(window.scene, sq1))
-	squares[0].add_to_scene()
-	squares[0].add_transformation(t0)
-	squares[0].compute_transformations()
-	for i in range(1, 10):
-		squares.append(SceneEntity(window.scene, sq1, fixed_point=FixedPoint(0, squares[i - 1], 2)))
-		squares[i].add_to_scene(i + 1, QColor(randint(0, 255), randint(0, 255), randint(0, 255)))
-		# fmt: off
-		squares[i].add_transformation(Transformation(np.array([
-			[cos((i + 1) * theta), -sin((i + 1) * theta)],
-			[sin((i + 1) * theta), cos((i + 1) * theta)],
-		], dtype=float), True, column_major=True))
-		# fmt: on
-		squares[i].compute_transformations()
+	# squares: list[SceneEntity] = []
+	# squares.append(SceneEntity(window.scene, sq1))
+	# squares[0].add_to_scene()
+	# squares[0].add_transformation(t0)
+	# squares[0].compute_transformations()
+	# for i in range(1, 10):
+	# 	squares.append(SceneEntity(window.scene, sq1, fixed_point=FixedPoint(0, squares[i - 1], 2)))
+	# 	squares[i].add_to_scene(i + 1, QColor(randint(0, 255), randint(0, 255), randint(0, 255)))
+	# 	# fmt: off
+	# 	squares[i].add_transformation(Transformation(np.array([
+	# 		[cos((i + 1) * theta), -sin((i + 1) * theta)],
+	# 		[sin((i + 1) * theta), cos((i + 1) * theta)],
+	# 	], dtype=float), True, column_major=True))
+	# 	# fmt: on
+	# 	squares[i].compute_transformations()
 
-	window.scene_entities.extend(squares)
+	# window.scene_entities.extend(squares)
 	window.show()
+	# window.requestActivate()
 	sys.exit(app.exec())

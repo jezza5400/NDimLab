@@ -97,7 +97,67 @@ To keep performance perfectly smooth, separate **Rendering Math** from **UI Logi
 - **Minimal PCIe Traffic:** You stream 64 bytes (the $4\times4$ matrix) per frame instead of hundreds of kilobytes of modified point coordinates.
 - **Infinite Scalability:** OpenGL handles the hardware core distribution automatically. The exact same code will instantly scale from an Intel integrated GPU up to a dedicated desktop graphics card without modifications.
 
-## QOpenGLWindow/QOpenGLWidget execution order
+## QOpenGLWidget execution order
+
+- **`initializeGL()`** is guaranteed to run once before the first time `resizeGL()` or `paintGL()` is called.
+- **`initializeGL()`** can technically be called again if the underlying GL context is destroyed and recreated (e.g. the widget is reparented into a different top-level window, or the driver resets the context).
+- Unlike `QOpenGLWindow`, a `QOpenGLWidget` renders into an off-screen **framebuffer object (FBO)**, not directly to the native window surface. Qt then composites that FBO's texture into the normal widget-painting pipeline alongside sibling widgets.
+- **`resizeGL()`** fires whenever the widget is resized, and also on first show, since new widgets get an automatic resize event. It's also where the backing FBO gets reallocated at the new size.
+- **`update()`** is the correct way to *request* a repaint from outside `paintGL()`, but it's *asynchronous*: it schedules a `paintEvent()` on the event loop rather than calling `paintGL()` directly.
+- `paintGL()` isn't called by Qt's window system directly - it's invoked from inside `QOpenGLWidget::paintEvent()`, which itself is driven by the same widget-update mechanism as any other `QWidget` (so it can also be triggered indirectly by parent-widget repaints, not just `update()` calls).
+
+```mermaid
+---
+config:
+  layout: dagre
+---
+flowchart TB
+    subgraph SETUP["Startup (runs once)"]
+        direction TB
+        A(["Program Start"]) --> B["__init__()"]
+        B --> C["Python sets up instance variables\n(no GL context yet)"]
+        C --> D["widget.show()"]
+        D --> E["OS creates native window;\nQt creates GL context + FBO"]
+        E --> F["initializeGL()\ncompile shaders, upload VBOs/textures"]
+        F --> G["resizeGL(w, h)\nallocate FBO, set viewport & projection"]
+        G --> H["paintEvent() → paintGL()\nfirst frame rendered into FBO,\nthen composited to screen"]
+    end
+
+    H --> LOOP{"Event Loop\n(Qt waits for next event)"}
+
+    subgraph RUNTIME["Runtime Loop (repeats)"]
+        direction TB
+        LOOP -->|Window/layout resized| RZ["resizeGL(w, h)\nFBO reallocated"]
+        RZ --> SCHED["Qt auto-schedules a repaint"]
+        LOOP -->|Key / Mouse event| EV["keyPressEvent() / mouseMoveEvent() / etc."]
+        EV --> UPD["self.update()"]
+        LOOP -->|Timer / animation tick| TMR["QTimer callback"]
+        TMR --> UPD
+        LOOP -->|Parent widget repaints| PARENT["Parent/sibling widget update"]
+        PARENT --> SCHED
+        LOOP -->|Nothing pending| IDLE["Idle — CPU free, no draw"]
+        IDLE --> LOOP
+        SCHED --> PE["paintEvent()"]
+        UPD --> PE
+        PE --> PG["paintGL() runs again\n(renders into FBO)"]
+        PG --> COMP["Qt composites FBO texture\nwith rest of widget tree"]
+        COMP --> LOOP
+    end
+
+    classDef setupNode fill:#cfe8ff,stroke:#4a90d9,stroke-width:1px,color:#1a1a1a;
+    classDef loopNode fill:#ffe3b3,stroke:#d98e2b,stroke-width:1px,color:#1a1a1a;
+    classDef decision fill:#e0c3fc,stroke:#8e44ad,stroke-width:1px,color:#1a1a1a;
+    classDef idleNode fill:#e0e0e0,stroke:#888,stroke-width:1px,color:#1a1a1a;
+
+    class A,B,C,D,E,F,G,H setupNode;
+    class RZ,SCHED,EV,UPD,TMR,PE,PG,PARENT,COMP loopNode;
+    class LOOP decision;
+    class IDLE idleNode;
+```
+
+<span style="color:#ff9100">Note:</span> with `QOpenGLWindow` the `paintGL()` method draws essentially straight to the screen surface, but with `QOpenGLWidget` it draws into an FBO first, and that FBO is then blended into the rest of the widget hierarchy like any other widget's content. That's what makes `QOpenGLWidget` composable with normal Qt widgets (possible to layer a `QPushButton` on top of it, put it in a layout, etc.) at the cost of an extra copy/blit per frame.
+
+## QOpenGLWindow execution order
 
 - **`initializeGL()`** is guaranteed to run once before the first time resizeGL() or paintGL() is called.
 - **`initializeGL()`** can technically be called again if the underlying GL context is destroyed and recreated. (e.g. some GPU driver resets or screen/adapter changes)

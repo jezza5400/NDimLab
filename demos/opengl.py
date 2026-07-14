@@ -13,7 +13,7 @@ def load_shader(path: Path) -> str:
 	return Path(path).read_text(encoding="utf-8")
 
 
-SCRIPT_DIR = Path(__file__).resolve().parent
+SCRIPT_DIR = Path(__file__).resolve().parent.parent
 GRID_VERT_SHADER = load_shader(SCRIPT_DIR / "shaders" / "grid.vert")
 GRID_FRAG_SHADER = load_shader(SCRIPT_DIR / "shaders" / "grid.frag")
 TEXTURE_VERT = load_shader(SCRIPT_DIR / "shaders" / "texture.vert")

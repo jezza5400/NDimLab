@@ -8,6 +8,10 @@ in vec2 uv;
 
 out vec4 fragColor;
 
+float line_mask(float dist_px, float half_width_px) {
+	return step(dist_px, half_width_px);
+}
+
 void main() {
 	// Reconstruct world coordinates
 	vec2 world_coord = (uv * (u_resolution / 2.0) / u_zoom) + u_camera_pos;
@@ -33,19 +37,21 @@ void main() {
 	float major_step = multiplier * pow10;
 	float minor_step = major_step / 5.0;
 
-	// Define line thickness
-	vec2 major_minor_width = fwidth(world_coord);
-	vec2 axes_width = fwidth(world_coord) * 2.0;
+	// Distances to lines in screen pixels so cosmetic widths stay constant.
+	vec2 dist_to_minor_px = abs(fract(world_coord / minor_step - 0.5) - 0.5) * minor_step * u_zoom;
+	vec2 dist_to_major_px = abs(fract(world_coord / major_step - 0.5) - 0.5) * major_step * u_zoom;
+	vec2 axis_center_px = (u_resolution * 0.5) - (u_camera_pos * u_zoom);
+	vec2 dist_to_axis_px = abs(gl_FragCoord.xy - axis_center_px);
 
-	// Distances to lines
-	vec2 dist_to_minor = abs(fract(world_coord / minor_step - 0.5) - 0.5) * minor_step;
-	vec2 dist_to_major = abs(fract(world_coord / major_step - 0.5) - 0.5) * major_step;
-	vec2 dist_to_axis = abs(world_coord);
+	// Cosmetic line widths, expressed in pixels.
+	const float minor_half_width_px = 0.5;
+	const float major_half_width_px = 0.5;
+	const float axis_half_width_px = 1.0;
 
-	// Line Masks
-	float is_minor = max(step(dist_to_minor.x, major_minor_width.x), step(dist_to_minor.y, major_minor_width.y));
-	float is_major = max(step(dist_to_major.x, major_minor_width.x), step(dist_to_major.y, major_minor_width.y));
-	float is_axis = max(step(dist_to_axis.x, axes_width.x), step(dist_to_axis.y, axes_width.y));
+	// Line masks.
+	float is_minor = max(line_mask(dist_to_minor_px.x, minor_half_width_px), line_mask(dist_to_minor_px.y, minor_half_width_px));
+	float is_major = max(line_mask(dist_to_major_px.x, major_half_width_px), line_mask(dist_to_major_px.y, major_half_width_px));
+	float is_axis = max(line_mask(dist_to_axis_px.x, axis_half_width_px), line_mask(dist_to_axis_px.y, axis_half_width_px));
 
 	// Define colors
 	vec4 color_bg = vec4(0.0, 0.0, 0.0, 1.0);       // Black background
