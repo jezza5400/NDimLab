@@ -1,7 +1,7 @@
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from PySide6.QtOpenGL import QOpenGLWindow
 from PySide6.QtCore import Qt, QPointF, QLineF, QTimer, QElapsedTimer, QRectF, QRect
-from PySide6.QtGui import QAction, QPen, QPolygonF, QPainter, QColor, QWheelEvent, QSurfaceFormat, QKeyEvent, QMouseEvent, QCloseEvent
+from PySide6.QtGui import QAction, QPen, QPolygonF, QPainter, QColor, QWheelEvent, QSurfaceFormat, QKeyEvent, QMouseEvent, QCloseEvent, QInputDevice
 from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QGraphicsScene, QGraphicsView, QGraphicsPolygonItem, QLabel, QHBoxLayout
 from random import randint
 from typing import cast
@@ -32,6 +32,10 @@ BG_VERTS = np.array([
 	-1.0, -1.0, 1.0, 1.0, -1.0, 1.0
 ], dtype="f4")
 # fmt: on
+
+ZOOM_IN_FACTOR_KEY = 1.1
+ZOOM_IN_FACTOR_WHEEL = 0.1
+ZOOM_IN_FACTOR_TRACKPAD = 0.001
 
 
 class ViewAxisMarkers:
@@ -160,15 +164,14 @@ class OpenGLWidget(QOpenGLWidget):
 
 	def keyPressEvent(self, event: QKeyEvent) -> None:
 		moved = False
-		zoom_in_factor = 1.1
 		is_zoom_key = False
 
 		if event.modifiers() & Qt.KeyboardModifier.ControlModifier and event.key() in (Qt.Key.Key_Equal, Qt.Key.Key_Plus):
-			self.zoom_level *= zoom_in_factor
+			self.zoom_level *= ZOOM_IN_FACTOR_KEY
 			moved = True
 			is_zoom_key = True
 		elif event.modifiers() & Qt.KeyboardModifier.ControlModifier and event.key() == Qt.Key.Key_Minus:
-			self.zoom_level *= 1 / zoom_in_factor
+			self.zoom_level *= 1 / ZOOM_IN_FACTOR_KEY
 			moved = True
 			is_zoom_key = True
 		elif event.modifiers() & Qt.KeyboardModifier.ControlModifier and event.key() == Qt.Key.Key_0:
@@ -222,6 +225,32 @@ class OpenGLWidget(QOpenGLWidget):
 			self.update()
 
 		super().mouseReleaseEvent(event)
+
+	def wheelEvent(self, event: QWheelEvent) -> None:
+		pixel = event.pixelDelta()
+		angle = event.angleDelta()
+
+		px, py = pixel.x(), pixel.y()
+		ax, ay = angle.x(), angle.y()
+
+		# Any pixelDelta, x-axis scroll, or Non-120-multiple angleDelta -> trackpad
+		is_trackpad = px != 0 or py != 0 or ax != 0 or (ay % 120 != 0)
+
+		if is_trackpad:
+			dy = 1 + (ay * ZOOM_IN_FACTOR_TRACKPAD)
+		else:
+			dy = 1 + (ay / 120.0) * ZOOM_IN_FACTOR_WHEEL
+
+		self.zoom_level *= dy
+		self.is_zooming = True
+		self.update()
+
+		# print("pixelDelta:", pixel)
+		# print("angleDelta:", angle)
+		# print("trackpad:", is_trackpad)
+		# print("dy:", dy)
+
+		event.accept()
 
 	def mouseMoveEvent(self, event: QMouseEvent) -> None:
 		if event.buttons() == Qt.MouseButton.LeftButton:
