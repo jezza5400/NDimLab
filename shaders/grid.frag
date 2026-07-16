@@ -5,64 +5,105 @@ uniform float u_zoom;
 uniform vec2 u_resolution;
 
 in vec2 uv;
-
 out vec4 fragColor;
 
-float line_mask(float dist_px, float half_width_px) {
-	return step(dist_px, half_width_px);
-}
-
 void main() {
-	// Reconstruct world coordinates
-	vec2 world_coord = (uv * (u_resolution / 2.0) / u_zoom) + u_camera_pos;
+	// World origin pos on screen in pixels
+	vec2 origin_screen_px = (u_resolution * 0.5) - (u_camera_pos * u_zoom);
 
-	// Calculate approximately how wide a 5th of screen is in world units
+	// How wide grid intervals are in world units
 	float approx_major_step = (u_resolution.x / u_zoom) / 5.0;
+	if (approx_major_step < 0.0001) {
+		approx_major_step = 0.0001;
+	}
 
-	// prevent division-by-zero
-	approx_major_step = max(approx_major_step, 0.0001);
-
-	// Find nearest power of 10
 	float log10_step = floor(log(approx_major_step) / log(10.0));
 	float pow10 = pow(10.0, log10_step);
 	float ratio = approx_major_step / pow10;
 
-	float low_to_mid = step(2.0, ratio);  // 1.0 if ratio >= 2.0, else 0.0
-	float mid_to_high = step(5.0, ratio); // 1.0 if ratio >= 5.0, else 0.0
-
-	// Linearly interpolate multipliers based on step tests
-	float multiplier = mix(1.0, 2.0, low_to_mid);
-	multiplier = mix(multiplier, 5.0, mid_to_high);
+	float multiplier = 1.0;
+	if (ratio >= 5.0) {
+		multiplier = 5.0;
+	} else if (ratio >= 2.0) {
+		multiplier = 2.0;
+	}
 
 	float major_step = multiplier * pow10;
 	float minor_step = major_step / 5.0;
 
-	// Distances to lines in screen pixels so cosmetic widths stay constant.
-	vec2 dist_to_minor_px = abs(fract(world_coord / minor_step - 0.5) - 0.5) * minor_step * u_zoom;
-	vec2 dist_to_major_px = abs(fract(world_coord / major_step - 0.5) - 0.5) * major_step * u_zoom;
-	vec2 axis_center_px = (u_resolution * 0.5) - (u_camera_pos * u_zoom);
-	vec2 dist_to_axis_px = abs(gl_FragCoord.xy - axis_center_px);
+	// Convert grid intervals from world units to screen pixel sizes
+	float minor_step_px = minor_step * u_zoom;
+	float major_step_px = major_step * u_zoom;
 
-	// Cosmetic line widths, expressed in pixels.
-	const float minor_half_width_px = 0.5;
-	const float major_half_width_px = 0.5;
-	const float axis_half_width_px = 1.0;
+	// Get the current pixel's coord as int
+	int current_pixel_x = int(gl_FragCoord.x);
+	int current_pixel_y = int(gl_FragCoord.y);
 
-	// Line masks.
-	float is_minor = max(line_mask(dist_to_minor_px.x, minor_half_width_px), line_mask(dist_to_minor_px.y, minor_half_width_px));
-	float is_major = max(line_mask(dist_to_major_px.x, major_half_width_px), line_mask(dist_to_major_px.y, major_half_width_px));
-	float is_axis = max(line_mask(dist_to_axis_px.x, axis_half_width_px), line_mask(dist_to_axis_px.y, axis_half_width_px));
+	// Get origin position as plain ints
+	int origin_x = int(origin_screen_px.x);
+	int origin_y = int(origin_screen_px.y);
 
-	// Define colors
-	vec4 color_bg = vec4(0.0, 0.0, 0.0, 1.0);       // Black background
-	vec4 color_minor = vec4(0.12, 0.12, 0.12, 1.0); // #1F1F1F
-	vec4 color_major = vec4(0.4, 0.4, 0.4, 1.0);    // #666666
-	vec4 color_axis = vec4(0.9, 0.9, 0.9, 1.0);     // #E6E6E6
+	// Track whether this pixel should be a line
+	bool is_axis = false;
+	bool is_major = false;
+	bool is_minor = false;
 
-	// Layer composition
-	vec4 final_color = mix(color_bg, color_minor, is_minor);
-	final_color = mix(final_color, color_major, is_major);
-	final_color = mix(final_color, color_axis, is_axis);
+	// --- AXIS LOGIC (2 px Wide) ---
+	// If pixel is exactly on origin column, or 1 pixel to the right
+	if (current_pixel_x == origin_x || current_pixel_x == (origin_x + 1)) {
+		is_axis = true;
+	}
+	// If pixel is exactly on the origin row, or 1 pixel above
+	if (current_pixel_y == origin_y || current_pixel_y == (origin_y + 1)) {
+		is_axis = true;
+	}
+
+	// --- MAJOR GRID LOGIC (1 px Wide) ---
+	// Calculate distance from origin in pixels
+	float dx_from_origin = gl_FragCoord.x - origin_screen_px.x;
+	float dy_from_origin = gl_FragCoord.y - origin_screen_px.y;
+
+	// Find closest major grid line index
+	int closest_major_line_x = int(round(dx_from_origin / major_step_px));
+	int closest_major_line_y = int(round(dy_from_origin / major_step_px));
+
+	// Calculate integer screen pixel where grid line belongs
+	int target_major_px_x = origin_x + int(round(float(closest_major_line_x) * major_step_px));
+	int target_major_px_y = origin_y + int(round(float(closest_major_line_y) * major_step_px));
+
+	// If current pixel index matches target pixel index, turn it on
+	if (current_pixel_x == target_major_px_x || current_pixel_y == target_major_px_y) {
+		is_major = true;
+	}
+
+	// --- MINOR GRID LOGIC (1 px Wide) ---
+	int closest_minor_line_x = int(round(dx_from_origin / minor_step_px));
+	int closest_minor_line_y = int(round(dy_from_origin / minor_step_px));
+
+	int target_minor_px_x = origin_x + int(round(float(closest_minor_line_x) * minor_step_px));
+	int target_minor_px_y = origin_y + int(round(float(closest_minor_line_y) * minor_step_px));
+
+	if (current_pixel_x == target_minor_px_x || current_pixel_y == target_minor_px_y) {
+		is_minor = true;
+	}
+
+	// --- DENSITY FADE FOR MINOR LINES ---
+	if (minor_step_px < 6.0) {
+		is_minor = false; 
+	}
+
+	// --- FINAL COLOR RESOLUTION ---
+	vec4 final_color = vec4(0.0, 0.0, 0.0, 1.0);    // Default: Black background
+
+	if (is_minor) {
+		final_color = vec4(0.12, 0.12, 0.12, 1.0);  // #1F1F1F
+	}
+	if (is_major) {
+		final_color = vec4(0.4, 0.4, 0.4, 1.0);     // #666666
+	}
+	if (is_axis) {
+		final_color = vec4(0.9, 0.9, 0.9, 1.0);     // #E6E6E6
+	}
 
 	fragColor = final_color;
 }

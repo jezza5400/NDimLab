@@ -38,10 +38,6 @@ ZOOM_IN_FACTOR_WHEEL = 0.1
 ZOOM_IN_FACTOR_TRACKPAD = 0.001
 
 
-class ViewAxisMarkers:
-	def __init__(self, visible: bool, major: bool, minor: bool, size_pct: int | float): ...
-
-
 class OpenGLWidget(QOpenGLWidget):
 	def __init__(self, parent: QWidget | None = None) -> None:
 		super().__init__(parent=parent)
@@ -305,7 +301,7 @@ class OpenGLWidget(QOpenGLWidget):
 
 
 class NDimLabWindow(QMainWindow):
-	def __init__(self, begin_paused: bool = False, scale: int = 1) -> None:
+	def __init__(self, begin_paused: bool = False) -> None:
 		super().__init__()
 		self.setWindowTitle("NDimLab")
 		self.paused: bool = begin_paused
@@ -367,9 +363,9 @@ class NDimLabWindow(QMainWindow):
 		self.accumulator = 0.0
 		self.dt = 1.0 / 60.0
 
-		self.frame_timer = QTimer()
-		self.frame_timer.timeout.connect(self.tick)
-		self.frame_timer.start(0)
+		# self.frame_timer = QTimer()
+		# self.frame_timer.timeout.connect(self.tick)
+		# self.frame_timer.start(0)
 
 		self.gl_interval_timer = QTimer()
 		self.gl_interval_timer.timeout.connect(self.update_gl_overlay)
@@ -688,7 +684,7 @@ if __name__ == "__main__":
 	QSurfaceFormat.setDefaultFormat(fmt)
 
 	app = QApplication(sys.argv)
-	window = NDimLabWindow(begin_paused=False, scale=30)
+	window = NDimLabWindow(begin_paused=False)
 
 	# squares: list[SceneEntity] = []
 	# squares.append(SceneEntity(window.scene, sq1))
