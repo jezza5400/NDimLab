@@ -158,6 +158,18 @@ class OpenGLWidget(QOpenGLWidget):
 
 		super().closeEvent(event)
 
+	def _zoom(self, multiplier: float | None = None, reset_zoom: bool = True, reset_camera_pos: bool = False, bake: bool = True) -> None:
+		"""When bake is True grid will be baked and paintGL will be called"""
+		if reset_zoom:
+			self.zoom_level = self.OG_ZOOM
+		if multiplier:
+			self.zoom_level *= multiplier
+		if reset_camera_pos:
+			self.camera_pos = (0, 0)
+		if bake:
+			self.bake_grid()
+			self.update()
+
 	def keyPressEvent(self, event: QKeyEvent) -> None:
 		moved = False
 		is_zoom_key = False
@@ -172,21 +184,6 @@ class OpenGLWidget(QOpenGLWidget):
 			is_zoom_key = True
 		elif event.modifiers() & Qt.KeyboardModifier.ControlModifier and event.key() == Qt.Key.Key_0:
 			self.zoom_level = self.OG_ZOOM
-			moved = True
-		elif event.modifiers() & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier) and event.key() == Qt.Key.Key_ParenRight:
-			self.camera_pos = (0, 0)
-			moved = True
-		elif event.key() == Qt.Key.Key_W:
-			self.camera_pos = (self.camera_pos[0], self.camera_pos[1] + 1)
-			moved = True
-		elif event.key() == Qt.Key.Key_A:
-			self.camera_pos = (self.camera_pos[0] - 1, self.camera_pos[1])
-			moved = True
-		elif event.key() == Qt.Key.Key_S:
-			self.camera_pos = (self.camera_pos[0], self.camera_pos[1] - 1)
-			moved = True
-		elif event.key() == Qt.Key.Key_D:
-			self.camera_pos = (self.camera_pos[0] + 1, self.camera_pos[1])
 			moved = True
 
 		if moved:
@@ -309,29 +306,6 @@ class NDimLabWindow(QMainWindow):
 		self._has_reset = True
 		self._debug_mode = False
 
-		# --- MenuBar Actions ---
-		pause_action = QAction("&Pause", self)
-		pause_action.setCheckable(True)
-		pause_action.toggled.connect(self.pause_button_clicked)
-
-		self.physics_step_action = QAction("&Step", self)
-		self.physics_step_action.triggered.connect(self.physics_step_clicked)
-		self.physics_step_action.setEnabled(False)
-		pause_action.setChecked(self.paused)
-
-		debug_action = QAction("&Debug", self)
-		debug_action.setCheckable(True)
-		debug_action.toggled.connect(self.toggle_debug)
-		debug_action.setChecked(self._debug_mode)
-		debug_action.setShortcut("F3")
-
-		# --- MenuBar ---
-		menuBar = self.menuBar()
-		pause_menu = menuBar.addMenu("&Menu")
-		pause_menu.addAction(pause_action)
-		pause_menu.addAction(self.physics_step_action)
-		pause_menu.addAction(debug_action)
-
 		# --- Sidebar ---
 		sidebar = QWidget()
 		sidebar_layout = QVBoxLayout(sidebar)
@@ -352,6 +326,48 @@ class NDimLabWindow(QMainWindow):
 		# --- Debug Overlay ---
 		self.overlay = DebugOverlay(self.opengl_widget)
 		self.overlay.hide()
+
+		# --- MenuBar Actions ---
+		pause_action = QAction("&Pause", self)
+		pause_action.setCheckable(True)
+		pause_action.toggled.connect(self.pause_button_clicked)
+
+		self.physics_step_action = QAction("&Step", self)
+		self.physics_step_action.triggered.connect(self.physics_step_clicked)
+		self.physics_step_action.setEnabled(False)
+		pause_action.setChecked(self.paused)
+
+		debug_action = QAction("&Debug", self)
+		debug_action.setCheckable(True)
+		debug_action.toggled.connect(self.toggle_debug)
+		debug_action.setChecked(self._debug_mode)
+		debug_action.setShortcut("F3")
+
+		reset_camera_action = QAction("&Reset Camera", self)
+		reset_camera_action.setShortcut("Ctrl+Shift+0")
+		reset_camera_action.triggered.connect(lambda: self.opengl_widget._zoom(reset_camera_pos=True))
+
+		zoom_in_action = QAction("Zoom In", self)
+		zoom_in_action.setShortcut("Ctrl+=")
+		zoom_in_action.triggered.connect(lambda: self.opengl_widget._zoom(ZOOM_IN_FACTOR_KEY, reset_zoom=False))
+
+		zoom_out_action = QAction("Zoom Out", self)
+		zoom_out_action.setShortcut("Ctrl+-")
+		zoom_out_action.triggered.connect(lambda: self.opengl_widget._zoom(1 / ZOOM_IN_FACTOR_KEY, reset_zoom=False))
+
+		# --- MenuBar ---
+		menu_bar = self.menuBar()
+
+		menu_bar_menu = menu_bar.addMenu("&Menu")
+		menu_bar_view = menu_bar.addMenu("&View")
+
+		menu_bar_menu.addAction(pause_action)
+		menu_bar_menu.addAction(self.physics_step_action)
+		menu_bar_menu.addAction(debug_action)
+
+		menu_bar_view.addAction(reset_camera_action)
+		menu_bar_view.addAction(zoom_in_action)
+		menu_bar_view.addAction(zoom_out_action)
 
 		# --- Timers ---
 		self.timer = QElapsedTimer()
