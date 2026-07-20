@@ -194,6 +194,8 @@ class OpenGLWidget(QOpenGLWidget):
 			else:
 				self.bake_grid()
 				self.update()
+			event.accept()
+			return
 
 		super().keyPressEvent(event)
 
@@ -347,6 +349,10 @@ class NDimLabWindow(QMainWindow):
 		reset_camera_action.setShortcut("Ctrl+Shift+0")
 		reset_camera_action.triggered.connect(lambda: self.opengl_widget._zoom(reset_camera_pos=True))
 
+		reset_zoom_action = QAction("Reset Zoom", self)
+		reset_zoom_action.setShortcut("Ctrl+0")
+		reset_zoom_action.triggered.connect(lambda: self.opengl_widget._zoom())
+
 		zoom_in_action = QAction("Zoom In", self)
 		zoom_in_action.setShortcut("Ctrl+=")
 		zoom_in_action.triggered.connect(lambda: self.opengl_widget._zoom(ZOOM_IN_FACTOR_KEY, reset_zoom=False))
@@ -366,6 +372,7 @@ class NDimLabWindow(QMainWindow):
 		menu_bar_menu.addAction(debug_action)
 
 		menu_bar_view.addAction(reset_camera_action)
+		menu_bar_view.addAction(reset_zoom_action)
 		menu_bar_view.addAction(zoom_in_action)
 		menu_bar_view.addAction(zoom_out_action)
 
