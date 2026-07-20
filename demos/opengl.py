@@ -2,7 +2,7 @@ from typing import cast
 from PySide6.QtOpenGL import QOpenGLWindow
 import sys
 from pathlib import Path
-from PySide6.QtCore import Qt, QTimer, QPointF
+from PySide6.QtCore import Qt, QPointF
 from PySide6.QtGui import QSurfaceFormat, QWindow, QKeyEvent, QMouseEvent, QCloseEvent
 from PySide6.QtWidgets import QApplication
 import moderngl as mgl
