@@ -4,14 +4,15 @@ layout (std430, binding = 0) readonly buffer PointBuffer {
 	float rawCoords[];
 };
 
-// (u_dimension + 1) rows x 4 cols, row-major: transMatrix[row * 4 + col]
-// Row u_dimension is the translation/affine row (the old homogeneous "1").
 layout (std430, binding = 1) readonly buffer TransformBuffer {
 	float transMatrix[];
 };
 
 uniform uint u_dimension;
 uniform vec4 u_pointColor;
+uniform vec2 u_camera_pos;
+uniform float u_zoom;
+uniform vec2 u_resolution;
 
 out vec4 vertColor;
 
@@ -20,8 +21,6 @@ void main() {
 
 	vec4 clipPos = vec4(0.0);
 
-	// Accumulate each input dimension's contribution to clip space.
-	// Loop bound is uniform (same for every invocation) -> coherent, not divergent.
 	for (uint d = 0u; d < u_dimension; ++d) {
 		float coord = rawCoords[startIndex + d];
 		uint row = d * 4u;
@@ -33,7 +32,6 @@ void main() {
 		);
 	}
 
-	// Affine/translation row (equivalent to the old implicit "w=1" component)
 	uint wRow = u_dimension * 4u;
 	clipPos += vec4(
 		transMatrix[wRow + 0u],
@@ -41,6 +39,9 @@ void main() {
 		transMatrix[wRow + 2u],
 		transMatrix[wRow + 3u]
 	);
+
+	vec2 ndc_scale = (2.0 * u_zoom) / u_resolution;
+	clipPos.xy = ndc_scale * (clipPos.xy - u_camera_pos);
 
 	gl_Position = clipPos;
 	vertColor = u_pointColor;

@@ -1,40 +1,58 @@
-from PySide6.QtOpenGLWidgets import QOpenGLWidget
-from PySide6.QtCore import Qt, QPointF, QTimer, QElapsedTimer
-from PySide6.QtGui import QAction, QPen, QPolygonF, QPainter, QColor, QWheelEvent, QSurfaceFormat, QKeyEvent, QMouseEvent, QCloseEvent, QResizeEvent
-from PySide6.QtWidgets import (
-	QApplication,
-	QMainWindow,
-	QWidget,
-	QVBoxLayout,
-	QHBoxLayout,
-	QGraphicsScene,
-	QGraphicsPolygonItem,
-	QLabel,
-	QLineEdit,
-	QGridLayout,
-	QSplitter,
-	QGraphicsItem,
-	QFrame,
-	QScrollArea,
-	QComboBox,
-	QSpinBox,
-	QCheckBox,
-	QPushButton,
-	QColorDialog,
-)
-from typing import cast, Callable, Type
-from collections import deque
-from collections.abc import Iterable
-from abc import ABC, abstractmethod
-from dataclasses import dataclass
-import sys
 import ast
 import math
 import operator
+import sys
+from abc import ABC, abstractmethod
+from collections import deque
+from collections.abc import Iterable
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Callable, Type, cast
 import moderngl as mgl
 import numpy as np
 from numpy.typing import NDArray
-from pathlib import Path
+from PySide6.QtCore import (
+	Qt,
+	QPointF,
+	QTimer,
+	QElapsedTimer,
+	Signal,
+)
+from PySide6.QtGui import (
+	QAction,
+	QColor,
+	QKeyEvent,
+	QMouseEvent,
+	QPainter,
+	QPen,
+	QPolygonF,
+	QSurfaceFormat,
+	QWheelEvent,
+	QResizeEvent,
+	QCloseEvent,
+)
+from PySide6.QtWidgets import (
+	QApplication,
+	QCheckBox,
+	QComboBox,
+	QFrame,
+	QGraphicsItem,
+	QGraphicsPolygonItem,
+	QGraphicsScene,
+	QGridLayout,
+	QHBoxLayout,
+	QLabel,
+	QLineEdit,
+	QMainWindow,
+	QPushButton,
+	QColorDialog,
+	QScrollArea,
+	QSpinBox,
+	QSplitter,
+	QVBoxLayout,
+	QWidget,
+)
+from PySide6.QtOpenGLWidgets import QOpenGLWidget
 
 
 def load_shader(path: Path) -> str:
@@ -79,7 +97,7 @@ class Evaluator:
 		ast.UAdd: operator.pos,
 	}
 
-	# Trig functions take/return degrees, matching typical calculator-style input (e.g. "sin(60)").
+	# Trig functions take/return degrees
 	FUNCTIONS: dict[str, Callable[[float], float]] = {
 		"sin": lambda x: math.sin(math.radians(x)),
 		"cos": lambda x: math.cos(math.radians(x)),
@@ -96,7 +114,6 @@ class Evaluator:
 	@classmethod
 	def evaluate_expression(cls, expr: str) -> float:
 		"""Evaluates a math string safely adhering to BODMAS rules."""
-
 		if not expr:
 			return 0.0
 
@@ -133,9 +150,70 @@ class Evaluator:
 
 
 class MatrixLineEdit(QLineEdit):
-	"""Custom QLineEdit that catches symbols like '*' and converts them to math ones like '·'."""
+	"""Custom QLineEdit that catches symbols like '*' and converts them to math ones like '·',
+	and dynamically outlines red on invalid mathematical input.
+	"""
 
 	VALID_CHARACTERS = frozenset({"+", "-", "*", "/", ".", "(", ")"})
+
+	has_error_changed = Signal(bool)
+
+	def __init__(self, parent=None) -> None:
+		super().__init__(parent)
+		self._has_error: bool = False
+
+		self.setStyleSheet(self.base_style())
+
+		self.textChanged.connect(self.validate_current_text)
+
+	def base_style(self) -> str:
+		pal = self.palette()
+		base = pal.color(pal.currentColorGroup(), pal.ColorRole.Base).name()
+		text = pal.color(pal.currentColorGroup(), pal.ColorRole.Text).name()
+		return f"""
+			MatrixLineEdit {{
+				border: 2px solid #a0a0a0;
+				border-radius: 4px;
+				padding: 4px;
+				background-color: {base};
+				color: {text};
+			}}
+			MatrixLineEdit[has_error="true"] {{
+				border: 2px solid #ef4444;
+				background-color: #fef2f2;
+				color: #7f1d1d;
+			}}
+			MatrixLineEdit:focus {{
+				border: 2px solid #3b82f6;
+			}}
+			MatrixLineEdit[has_error="true"]:focus {{
+				border: 2px solid #dc2626;
+			}}
+		"""
+
+	def set_has_error(self, value: bool) -> None:
+		"""Updates the error state, forces a layout paint cycle, and emits a signal."""
+		if self._has_error != value:
+			self._has_error = value
+
+			self.setProperty("has_error", value)
+
+			self.style().unpolish(self)
+			self.style().polish(self)
+
+			self.has_error_changed.emit(value)
+
+	def validate_current_text(self, text: str) -> None:
+		"""Runs input through the evaluator to update the error state."""
+		if not text.strip():
+			self.set_has_error(False)
+			return
+
+		try:
+			Evaluator.evaluate_expression(text)
+			self.set_has_error(False)
+		except ValueError:
+			self.set_has_error(True)
 
 	def keyPressEvent(self, arg__1: QKeyEvent) -> None:
 		key = arg__1.key()
@@ -179,21 +257,14 @@ class MatrixWidget(QWidget):
 
 		self.cells = []
 
-		cell_style = """
-			QLineEdit {
-				border: 1px solid palette(mid);
-				background-color: palette(base);
-				color: palette(text);
+		extra_style = """
+			MatrixLineEdit {
 				font-family: 'Courier New', monospace;
 				font-size: 14px;
 				font-weight: bold;
 				min-width: 45px;
 				max-width: 90px;
 				height: 26px;
-			}
-			QLineEdit:focus {
-				border: 1px solid palette(highlight);
-				background-color: palette(window);
 			}
 		"""
 
@@ -202,7 +273,7 @@ class MatrixWidget(QWidget):
 			for c in range(self.cols):
 				cell = MatrixLineEdit()
 				cell.setAlignment(Qt.AlignmentFlag.AlignCenter)
-				cell.setStyleSheet(cell_style)
+				cell.setStyleSheet(cell.base_style() + extra_style)
 				self.grid.addWidget(cell, r, c)
 				row_cells.append(cell)
 			self.cells.append(row_cells)
@@ -230,7 +301,7 @@ class MatrixWidget(QWidget):
 		painter.drawLine(w - offset, offset, w - offset, h - offset)
 		painter.drawLine(w - offset, h - offset, w - offset - bracket_depth, h - offset)
 
-	def get_matrix_data(self, default_val: int = 0) -> NDArray:
+	def get_matrix_data(self, default_val: float = 0.0) -> NDArray:
 		"""Extracts matrix contents into float32 NumPy array.
 
 		If a cell is empty or contains an invalid string, it falls back to `default_val`.
@@ -239,14 +310,18 @@ class MatrixWidget(QWidget):
 		for row in self.cells:
 			row_data = []
 			for cell in row:
-				evaluated_val = Evaluator.evaluate_expression(cell.text().strip())
 				try:
-					row_data.append(evaluated_val)
+					value = Evaluator.evaluate_expression(cell.text().strip())
 				except ValueError:
-					row_data.append(default_val)
+					value = default_val
+				row_data.append(value)
 			data.append(row_data)
 
 		return np.array(data, dtype=np.float32)
+
+	def get_matrix_text(self) -> list[list[str]]:
+		"""Raw, unevaluated cell text (e.g. 'sin(90)'), same shape as get_matrix_data()."""
+		return [[cell.text() for cell in row] for row in self.cells]
 
 
 class LiveMatrixWidget(MatrixWidget):
@@ -269,6 +344,14 @@ class LiveMatrixWidget(MatrixWidget):
 			for c, cell in enumerate(row):
 				cell.blockSignals(True)
 				cell.setText(f"{float(data[r, c]):g}")
+				cell.blockSignals(False)
+
+	def set_text_values(self, text_grid) -> None:
+		"""Populate cells from (rows, cols) grid of raw strings to redisplay a transformation's original expressions instead of their evaluated value."""
+		for r, row in enumerate(self.cells):
+			for c, cell in enumerate(row):
+				cell.blockSignals(True)
+				cell.setText(str(text_grid[r][c]))
 				cell.blockSignals(False)
 
 
@@ -357,6 +440,9 @@ class OpenGLWidget(QOpenGLWidget):
 		self.poly_trans_ssbo.bind_to_storage_buffer(binding=1)
 		self.u_poly_dimension = cast(mgl.Uniform, self.poly_prog["u_dimension"])
 		self.u_poly_pointColor = cast(mgl.Uniform, self.poly_prog["u_pointColor"])
+		self.u_poly_camera_pos = cast(mgl.Uniform, self.poly_prog["u_camera_pos"])
+		self.u_poly_zoom = cast(mgl.Uniform, self.poly_prog["u_zoom"])
+		self.u_poly_resolution = cast(mgl.Uniform, self.poly_prog["u_resolution"])
 
 		if self.width() > 0 and self.height() > 0:
 			self.bake_grid()
@@ -375,10 +461,10 @@ class OpenGLWidget(QOpenGLWidget):
 		self.screen_fbo.use()
 		self.ctx.clear(0.0, 0.0, 0.0, 1.0)
 
-		if self.is_panning or self.is_zooming or self.grid_texture is None:
-			ratio = self.devicePixelRatioF()
-			w, h = int(self.width() * ratio), int(self.height() * ratio)
+		ratio = self.devicePixelRatioF()
+		w, h = int(self.width() * ratio), int(self.height() * ratio)
 
+		if self.is_panning or self.is_zooming or self.grid_texture is None:
 			self.u_bg_resolution.value = (w, h)
 			self.u_bg_camera_pos.value = (self.camera_pos[0], self.camera_pos[1])
 			self.u_bg_zoom.value = self.zoom_level
@@ -390,6 +476,10 @@ class OpenGLWidget(QOpenGLWidget):
 
 		top_level = self.window()
 		if isinstance(top_level, NDimLabWindow):
+			self.u_poly_camera_pos.value = (self.camera_pos[0], self.camera_pos[1])
+			self.u_poly_zoom.value = self.zoom_level
+			self.u_poly_resolution.value = (w, h)
+
 			for entity in top_level.scene_entities:
 				points_data = np.ascontiguousarray(entity.points[:, : entity.dimension], dtype=np.float32).tobytes()
 
@@ -613,11 +703,6 @@ class TransformationRow(QFrame):
 		self.continuous_check.toggled.connect(self._continuous_toggled)
 		header.addWidget(self.continuous_check)
 
-		self.column_major_check = QCheckBox("Col-major")
-		self.column_major_check.setChecked(transformation.column_major)
-		self.column_major_check.toggled.connect(self._column_major_toggled)
-		header.addWidget(self.column_major_check)
-
 		up_btn = QPushButton("▲")
 		up_btn.setFixedWidth(20)
 		up_btn.clicked.connect(lambda: self.on_move(self, -1))
@@ -638,28 +723,39 @@ class TransformationRow(QFrame):
 		if transformation.homogeneous:
 			rows = cols = transformation.matrix.shape[0]
 			initial = transformation.matrix
+			initial_text = transformation.matrix_text
 		elif transformation.linear:
 			rows, cols = transformation.matrix.shape
 			initial = transformation.matrix
+			initial_text = transformation.matrix_text
 		else:
-			rows, cols = 1, transformation.matrix.shape[0]
-			initial = transformation.matrix.reshape(1, -1)
+			dim = transformation.matrix.shape[0]
+			if transformation.column_major:
+				rows, cols = dim, 1
+			else:
+				rows, cols = 1, dim
+			initial = transformation.matrix.reshape(rows, cols)
+			initial_text = transformation.matrix_text.reshape(rows, cols) if transformation.matrix_text is not None else None
 
 		self.matrix_widget = LiveMatrixWidget(rows, cols, on_change=self._matrix_changed)
-		self.matrix_widget.set_values(initial)
+		if initial_text is not None:
+			self.matrix_widget.set_text_values(initial_text)
+		else:
+			self.matrix_widget.set_values(initial)
 		layout.addWidget(self.matrix_widget)
 
 	def _matrix_changed(self, data: NDArray) -> None:
-		matrix = data if (self.transformation.homogeneous or self.transformation.linear) else data.reshape(-1)
-		self.entity.update_transformation_matrix(self.transformation, matrix)
+		text_grid = np.array(self.matrix_widget.get_matrix_text(), dtype=object)
+		if self.transformation.homogeneous or self.transformation.linear:
+			matrix = data
+		else:
+			matrix = data.reshape(-1)
+			text_grid = text_grid.reshape(-1)
+		self.entity.update_transformation_matrix(self.transformation, matrix, text_grid)
 		self.on_changed()
 
 	def _continuous_toggled(self, checked: bool) -> None:
 		self.entity.set_transformation_continuous(self.transformation, checked)
-		self.on_changed()
-
-	def _column_major_toggled(self, checked: bool) -> None:
-		self.entity.set_transformation_column_major(self.transformation, checked)
 		self.on_changed()
 
 	def _remove_clicked(self) -> None:
@@ -721,21 +817,10 @@ class EntityRow(QFrame):
 		body_layout.setSpacing(6)
 
 		body_layout.addWidget(QLabel("Points:"))
-		rows, cols = entity.points.shape[0], entity.dimension
-		self.points_widget = LiveMatrixWidget(rows, cols, on_change=self._points_changed)
-		self.points_widget.set_values(entity.original_points[:, :cols])
-
-		points_row_layout = QHBoxLayout()
-		points_row_layout.addWidget(self.points_widget)
-		if entity.homogeneous_display:
-			hom_col = QVBoxLayout()
-			for _ in range(rows):
-				lbl = QLabel("1")
-				lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-				lbl.setStyleSheet("color: palette(mid); min-width: 24px;")
-				hom_col.addWidget(lbl)
-			points_row_layout.addLayout(hom_col)
-		body_layout.addLayout(points_row_layout)
+		self.points_row_layout = QHBoxLayout()
+		self.points_widget = self._make_points_widget()
+		self.points_row_layout.addWidget(self.points_widget)
+		body_layout.addLayout(self.points_row_layout)
 
 		trans_header = QHBoxLayout()
 		trans_header.addWidget(QLabel("Transformations:"))
@@ -755,6 +840,30 @@ class EntityRow(QFrame):
 
 		outer.addWidget(self.body)
 
+	def _make_points_widget(self) -> LiveMatrixWidget:
+		"""Builds Points editor using global column-major setting so points are entered row-wise or column-wise without affecting geometry."""
+		dim = self.entity.dimension
+		count = self.entity.points.shape[0]
+		values = self.entity.original_points[:, :dim]
+		if self.window_ref.column_major_global:
+			rows, cols = dim, count
+			values = values.T
+		else:
+			rows, cols = count, dim
+
+		widget = LiveMatrixWidget(rows, cols, on_change=self._points_changed)
+		widget.set_values(values)
+		return widget
+
+	def rebuild_points_widget(self) -> None:
+		"""Recreates the Points editor with the shape matching the current column-major setting."""
+		old_widget = self.points_widget
+		self.points_row_layout.removeWidget(old_widget)
+		old_widget.deleteLater()
+
+		self.points_widget = self._make_points_widget()
+		self.points_row_layout.addWidget(self.points_widget)
+
 	def _toggle_expanded(self) -> None:
 		visible = not self.body.isVisible()
 		self.body.setVisible(visible)
@@ -766,15 +875,23 @@ class EntityRow(QFrame):
 
 	def _points_changed(self, data: NDArray) -> None:
 		cols = self.entity.dimension
-		self.entity.original_points[:, :cols] = data
-		self.entity.points[:, :cols] = data
+		points_data = data.T if self.window_ref.column_major_global else data
+		self.entity.original_points[:, :cols] = points_data
+		self.entity.points[:, :cols] = points_data
 		self._apply_and_repaint()
 
 	def _add_transformation(self) -> None:
 		dim = self.entity.dimension
 		kind = self.trans_kind_combo.currentText()
 		col_major = self.window_ref.column_major_global
-		name = f"Transform {len(self.entity.transformations) + 1}"
+
+		def kind_label(t: Transformation) -> str:
+			if t.homogeneous:
+				return "Homogeneous"
+			return "Linear" if t.linear else "Translation"
+
+		existing_of_kind = sum(1 for t in self.entity.transformations if kind_label(t) == kind)
+		name = f"{kind} {existing_of_kind + 1}"
 
 		if kind == "Homogeneous":
 			matrix = np.eye(dim + 1, dtype=np.float32)
@@ -809,9 +926,19 @@ class EntityRow(QFrame):
 		self.transformations_container.insertWidget(new_idx, row)
 		self._apply_and_repaint()
 
+	def rebuild_transformation_rows(self) -> None:
+		for row in self.transformation_rows:
+			self.transformations_container.removeWidget(row)
+			row.deleteLater()
+		self.transformation_rows.clear()
+
+		for t in self.entity.transformations:
+			row = TransformationRow(self.entity, t, on_removed=self._remove_transformation_row, on_changed=self._apply_and_repaint, on_move=self._move_transformation_row, parent=self)
+			self.transformation_rows.append(row)
+			self.transformations_container.addWidget(row)
+
 	def _apply_and_repaint(self) -> None:
 		self.entity.apply_one_shot()
-		self.window_ref.update_scene_entities()
 		self._repaint()
 
 	def _repaint(self) -> None:
@@ -827,7 +954,7 @@ class EntityRow(QFrame):
 class EntityCreatePanel(QFrame):
 	"""Collapsible '+ New Entity' form for creating scene entities."""
 
-	def __init__(self, on_create: Callable[[str, int, int, bool, QColor], None], parent: QWidget | None = None) -> None:
+	def __init__(self, on_create: Callable[[str, int, int, QColor], None], parent: QWidget | None = None) -> None:
 		super().__init__(parent)
 		self.on_create = on_create
 		self.setFrameShape(QFrame.Shape.StyledPanel)
@@ -860,11 +987,6 @@ class EntityCreatePanel(QFrame):
 		self.count_spin.setValue(4)
 		form_layout.addWidget(self.count_spin, 2, 1)
 
-		form_layout.addWidget(QLabel("Homogeneous:"), 3, 0)
-		self.homogeneous_check = QCheckBox()
-		self.homogeneous_check.setChecked(True)
-		form_layout.addWidget(self.homogeneous_check, 3, 1)
-
 		form_layout.addWidget(QLabel("Color:"), 4, 0)
 		self.color_button = ColorSwatchButton(QColor(DEFAULT_QCOLOR))
 		form_layout.addWidget(self.color_button, 4, 1)
@@ -883,9 +1005,8 @@ class EntityCreatePanel(QFrame):
 		kind = self.type_combo.currentText()
 		dim = self.dimension_spin.value()
 		count = self.count_spin.value()
-		homogeneous = self.homogeneous_check.isChecked()
 		color = QColor(self.color_button.color)
-		self.on_create(kind, dim, count, homogeneous, color)
+		self.on_create(kind, dim, count, color)
 
 
 class NDimLabWindow(QMainWindow):
@@ -899,9 +1020,11 @@ class NDimLabWindow(QMainWindow):
 		self._dummy_scene = QGraphicsScene()  # required by SceneEntity.__init__; unused for GPU rendering
 		self.entity_rows: list[EntityRow] = []
 		self.column_major_global: bool = False
+		self.ticks_per_second: int = 60
 
 		# --- Sidebar ---
 		sidebar = QWidget()
+		sidebar.setMinimumWidth(300)
 		sidebar_layout = QVBoxLayout(sidebar)
 		sidebar_layout.addWidget(QLabel("<h2>Scene Entities</h2>"))
 
@@ -910,6 +1033,13 @@ class NDimLabWindow(QMainWindow):
 		self.column_major_checkbox = QCheckBox()
 		self.column_major_checkbox.toggled.connect(self._set_column_major_global)
 		col_major_row.addWidget(self.column_major_checkbox)
+		col_major_row.addSpacing(12)
+		col_major_row.addWidget(QLabel("Ticks/sec:"))
+		self.tick_rate_spin = QSpinBox()
+		self.tick_rate_spin.setRange(1, 999)
+		self.tick_rate_spin.setValue(self.ticks_per_second)
+		self.tick_rate_spin.valueChanged.connect(self._set_tick_rate)
+		col_major_row.addWidget(self.tick_rate_spin)
 		col_major_row.addStretch()
 		sidebar_layout.addLayout(col_major_row)
 
@@ -934,19 +1064,36 @@ class NDimLabWindow(QMainWindow):
 		splitter = QSplitter(Qt.Orientation.Horizontal)
 		splitter.addWidget(sidebar)
 		splitter.addWidget(self.opengl_widget)
-		splitter.setSizes([200, 800])
+		splitter.setSizes([360, 640])
 		self.setCentralWidget(splitter)
 
 		# --- Debug Overlay ---
 		self.overlay = DebugOverlay(self.opengl_widget)
 		self.overlay.hide()
 
+		# --- Timers ---
+		self.timer = QElapsedTimer()
+		self.timer.start()
+		self._tick_duration_samples: deque[tuple[float, float]] = deque()
+		self._tick_duration_window_timer = QElapsedTimer()
+		self._tick_duration_window_timer.start()
+
+		self.tick_timer = QTimer()
+		self.tick_timer.timeout.connect(self.tick)
+		self.tick_timer.start(self._tick_interval_ms())
+
+		self.gl_interval_timer = QTimer()
+		self.gl_interval_timer.timeout.connect(self.update_gl_overlay)
+		self.gl_interval_timer.start(250)
+
 		# --- MenuBar Actions ---
 		pause_action = QAction("&Pause", self)
 		pause_action.setCheckable(True)
+		pause_action.setShortcut("P")
 		pause_action.toggled.connect(self.pause_button_clicked)
 
 		self.physics_step_action = QAction("&Step", self)
+		self.physics_step_action.setShortcut("S")
 		self.physics_step_action.triggered.connect(self.physics_step_clicked)
 		self.physics_step_action.setEnabled(False)
 		pause_action.setChecked(self.paused)
@@ -987,28 +1134,30 @@ class NDimLabWindow(QMainWindow):
 		menu_bar_view.addAction(zoom_in_action)
 		menu_bar_view.addAction(zoom_out_action)
 
-		# --- Timers ---
-		self.timer = QElapsedTimer()
-		self.timer.start()
-		self._tick_duration_samples: deque[tuple[float, float]] = deque()
-		self._tick_duration_window_timer = QElapsedTimer()
-		self._tick_duration_window_timer.start()
+		if self.paused:
+			self.tick_timer.stop()
 
-		self.accumulator = 0.0
-		self.dt = 1.0 / 60.0
+	def _tick_interval_ms(self) -> int:
+		return max(1, int(1000 / self.ticks_per_second))
 
-		# self.frame_timer = QTimer()
-		# self.frame_timer.timeout.connect(self.tick)
-		# self.frame_timer.start(0)
-
-		self.gl_interval_timer = QTimer()
-		self.gl_interval_timer.timeout.connect(self.update_gl_overlay)
-		self.gl_interval_timer.start(250)
+	def _set_tick_rate(self, value: int) -> None:
+		self.ticks_per_second = value
+		self.tick_timer.setInterval(self._tick_interval_ms())
 
 	def _set_column_major_global(self, checked: bool) -> None:
 		self.column_major_global = checked
 
-	def _create_entity(self, kind: str, dim: int, count: int, homogeneous: bool, color: QColor) -> None:
+		for entity in self.scene_entities:
+			entity.set_column_major(checked)
+			entity.apply_one_shot()
+
+		for row in self.entity_rows:
+			row.rebuild_transformation_rows()
+			row.rebuild_points_widget()
+
+		self.opengl_widget.update()
+
+	def _create_entity(self, kind: str, dim: int, count: int, color: QColor) -> None:
 		points = np.zeros((count, dim), dtype=np.float32)
 
 		entity: SceneEntity
@@ -1020,7 +1169,6 @@ class NDimLabWindow(QMainWindow):
 			entity = PointSet(self._dummy_scene, points)
 			entity.color = color
 
-		entity.homogeneous_display = homogeneous
 		self.scene_entities.append(entity)
 
 		row = EntityRow(self, entity, on_removed=self._remove_entity_row)
@@ -1084,21 +1232,26 @@ class NDimLabWindow(QMainWindow):
 		average_elapsed = sum(sample_elapsed for _, sample_elapsed in self._tick_duration_samples) / len(self._tick_duration_samples)
 		self.overlay.update_metrics(f"Tick Duration: {average_elapsed * 1000:.2f} ms")
 
-		if not self.paused:
-			self.accumulator += elapsed
+		if self.paused:
+			return
 
-			while self.accumulator >= self.dt:
-				self.update_scene_entities()
-				self.accumulator -= self.dt
+		self.update_scene_entities()
 
-		self.opengl_widget.update()
+		# Only redraw when something could actually have changed.
+		if any(entity.combined_continuous_homogenous is not None for entity in self.scene_entities):
+			self.opengl_widget.update()
 
 	def pause_button_clicked(self, state: bool) -> None:
 		self.paused = state
 		self.physics_step_action.setEnabled(state)
+		if state:
+			self.tick_timer.stop()
+		else:
+			self.tick_timer.start(self._tick_interval_ms())
 
 	def physics_step_clicked(self) -> None:
 		self.update_scene_entities()
+		self.opengl_widget.update()
 
 	def toggle_debug(self, checked: bool) -> None:
 		self._debug_mode = checked
@@ -1143,8 +1296,10 @@ class DebugOverlay(QWidget):
 		self.gl_paint_interval.setText(text)
 
 
-@dataclass
+@dataclass(eq=False)
 class Transformation:
+	"""eq=False: removes dataclass-generated __eq__"""
+
 	matrix: NDArray
 	linear: bool
 	homogeneous: bool = False
@@ -1152,8 +1307,9 @@ class Transformation:
 	enabled: bool = True
 	continuous: bool = True
 	name: str = ""
+	matrix_text: NDArray | None = None
 
-	def transposed(self) -> Transformation:
+	def transposed(self) -> "Transformation":
 		return Transformation(
 			matrix=self.matrix.T,
 			linear=self.linear,
@@ -1162,6 +1318,7 @@ class Transformation:
 			enabled=self.enabled,
 			continuous=self.continuous,
 			name=self.name,
+			matrix_text=self.matrix_text.T if self.matrix_text is not None else None,
 		)
 
 
@@ -1191,7 +1348,6 @@ class SceneEntity(ABC):
 		self.dimension: int = self.original_points.shape[1] - 1  # Exclude homogeneous column
 		self.projection_matrix: NDArray = self._make_projection_matrix()
 		self.color: QColor = QColor(DEFAULT_QCOLOR)
-		self.homogeneous_display: bool = True
 
 	def _make_projection_matrix(self) -> NDArray:
 		"""Maps this entity's (dim+1)-homogeneous points down to 4-component clip space.
@@ -1248,12 +1404,9 @@ class SceneEntity(ABC):
 		t.continuous = continuous
 		self.compute_transformations()
 
-	def set_transformation_column_major(self, t: Transformation, column_major: bool) -> None:
-		t.column_major = column_major
-		self.compute_transformations()
-
-	def update_transformation_matrix(self, t: Transformation, matrix: NDArray) -> None:
+	def update_transformation_matrix(self, t: Transformation, matrix: NDArray, matrix_text: NDArray | None = None) -> None:
 		t.matrix = matrix
+		t.matrix_text = matrix_text
 		self.compute_transformations()
 
 	def move_transformation(self, t: Transformation, delta: int) -> None:
@@ -1263,12 +1416,24 @@ class SceneEntity(ABC):
 			self.transformations[idx], self.transformations[new_idx] = self.transformations[new_idx], self.transformations[idx]
 			self.compute_transformations()
 
+	def set_column_major(self, column_major: bool) -> None:
+		for t in self.transformations:
+			if t.column_major != column_major:
+				t.matrix = t.matrix.T
+				if t.matrix_text is not None:
+					t.matrix_text = t.matrix_text.T
+				t.column_major = column_major
+		self.compute_transformations()
+
 	def fix_point_to(self, my_index: int, other_entity: "SceneEntity", other_index: int) -> None:
 		self.fixed_point = FixedPoint(my_index, other_entity, other_index)
 
 	def compute_transformations(self) -> None:
 		def append_or_combine(target_list: list[Transformation], tr: Transformation):
-			tr = tr.transposed() if tr.column_major else tr
+			if tr.column_major:
+				tr = tr.transposed()
+			else:
+				tr = Transformation(matrix=tr.matrix.copy(), linear=tr.linear, homogeneous=tr.homogeneous, column_major=tr.column_major, enabled=tr.enabled, continuous=tr.continuous, name=tr.name)
 
 			same_kind = bool(target_list) and target_list[-1].homogeneous == tr.homogeneous and (tr.homogeneous or target_list[-1].linear == tr.linear)
 			if not same_kind:
