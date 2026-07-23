@@ -1,40 +1,58 @@
-from PySide6.QtOpenGLWidgets import QOpenGLWidget
-from PySide6.QtCore import Qt, QPointF, QTimer, QElapsedTimer
-from PySide6.QtGui import QAction, QPen, QPolygonF, QPainter, QColor, QWheelEvent, QSurfaceFormat, QKeyEvent, QMouseEvent, QCloseEvent, QResizeEvent
-from PySide6.QtWidgets import (
-	QApplication,
-	QMainWindow,
-	QWidget,
-	QVBoxLayout,
-	QHBoxLayout,
-	QGraphicsScene,
-	QGraphicsPolygonItem,
-	QLabel,
-	QLineEdit,
-	QGridLayout,
-	QSplitter,
-	QGraphicsItem,
-	QFrame,
-	QScrollArea,
-	QComboBox,
-	QSpinBox,
-	QCheckBox,
-	QPushButton,
-	QColorDialog,
-)
-from typing import cast, Callable, Type
-from collections import deque
-from collections.abc import Iterable
-from abc import ABC, abstractmethod
-from dataclasses import dataclass
-import sys
 import ast
 import math
 import operator
+import sys
+from abc import ABC, abstractmethod
+from collections import deque
+from collections.abc import Iterable
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Callable, Type, cast
 import moderngl as mgl
 import numpy as np
 from numpy.typing import NDArray
-from pathlib import Path
+from PySide6.QtCore import (
+	Qt,
+	QPointF,
+	QTimer,
+	QElapsedTimer,
+	Signal,
+)
+from PySide6.QtGui import (
+	QAction,
+	QColor,
+	QKeyEvent,
+	QMouseEvent,
+	QPainter,
+	QPen,
+	QPolygonF,
+	QSurfaceFormat,
+	QWheelEvent,
+	QResizeEvent,
+	QCloseEvent,
+)
+from PySide6.QtWidgets import (
+	QApplication,
+	QCheckBox,
+	QComboBox,
+	QFrame,
+	QGraphicsItem,
+	QGraphicsPolygonItem,
+	QGraphicsScene,
+	QGridLayout,
+	QHBoxLayout,
+	QLabel,
+	QLineEdit,
+	QMainWindow,
+	QPushButton,
+	QColorDialog,
+	QScrollArea,
+	QSpinBox,
+	QSplitter,
+	QVBoxLayout,
+	QWidget,
+)
+from PySide6.QtOpenGLWidgets import QOpenGLWidget
 
 
 def load_shader(path: Path) -> str:
@@ -79,7 +97,7 @@ class Evaluator:
 		ast.UAdd: operator.pos,
 	}
 
-	# Trig functions take/return degrees, matching typical calculator-style input (e.g. "sin(60)").
+	# Trig functions take/return degrees
 	FUNCTIONS: dict[str, Callable[[float], float]] = {
 		"sin": lambda x: math.sin(math.radians(x)),
 		"cos": lambda x: math.cos(math.radians(x)),
@@ -94,9 +112,8 @@ class Evaluator:
 	}
 
 	@classmethod
-	def evaluate_expression(cls, expr: str) -> float:
+	def evaluate_expression(cls, expr: str, caller: "MatrixLineEdit") -> float:
 		"""Evaluates a math string safely adhering to BODMAS rules."""
-
 		if not expr:
 			return 0.0
 
@@ -133,9 +150,62 @@ class Evaluator:
 
 
 class MatrixLineEdit(QLineEdit):
-	"""Custom QLineEdit that catches symbols like '*' and converts them to math ones like '·'."""
+	"""Custom QLineEdit that catches symbols like '*' and converts them to math ones like '·',
+	and dynamically outlines red on invalid mathematical input.
+	"""
 
 	VALID_CHARACTERS = frozenset({"+", "-", "*", "/", ".", "(", ")"})
+
+	has_error_changed = Signal(bool)
+
+	def __init__(self, parent=None) -> None:
+		super().__init__(parent)
+		self._has_error: bool = False
+
+		self.setStyleSheet("""
+			MatrixLineEdit {
+				border: 2px solid #a0a0a0;
+				border-radius: 4px;
+				padding: 4px;
+				background-color: white;
+			}
+			MatrixLineEdit[has_error="true"] {
+				border: 2px solid #ef4444;
+				background-color: #fef2f2;
+			}
+			MatrixLineEdit:focus {
+				border: 2px solid #3b82f6;
+			}
+			MatrixLineEdit[has_error="true"]:focus {
+				border: 2px solid #dc2626;
+			}
+		""")
+
+		self.textChanged.connect(self.validate_current_text)
+
+	def set_has_error(self, value: bool) -> None:
+		"""Updates the error state, forces a layout paint cycle, and emits a signal."""
+		if self._has_error != value:
+			self._has_error = value
+
+			self.setProperty("has_error", value)
+
+			self.style().unpolish(self)
+			self.style().polish(self)
+
+			self.has_error_changed.emit(value)
+
+	def validate_current_text(self, text: str) -> None:
+		"""Runs input through the evaluator to update the error state."""
+		if not text.strip():
+			self.set_has_error(False)
+			return
+
+		try:
+			Evaluator.evaluate_expression(text, self)
+			self.set_has_error(False)
+		except ValueError:
+			self.set_has_error(True)
 
 	def keyPressEvent(self, arg__1: QKeyEvent) -> None:
 		key = arg__1.key()
@@ -239,7 +309,7 @@ class MatrixWidget(QWidget):
 		for row in self.cells:
 			row_data = []
 			for cell in row:
-				evaluated_val = Evaluator.evaluate_expression(cell.text().strip())
+				evaluated_val = Evaluator.evaluate_expression(cell.text().strip(), cell)
 				try:
 					row_data.append(evaluated_val)
 				except ValueError:
@@ -727,14 +797,6 @@ class EntityRow(QFrame):
 
 		points_row_layout = QHBoxLayout()
 		points_row_layout.addWidget(self.points_widget)
-		if entity.homogeneous_display:
-			hom_col = QVBoxLayout()
-			for _ in range(rows):
-				lbl = QLabel("1")
-				lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-				lbl.setStyleSheet("color: palette(mid); min-width: 24px;")
-				hom_col.addWidget(lbl)
-			points_row_layout.addLayout(hom_col)
 		body_layout.addLayout(points_row_layout)
 
 		trans_header = QHBoxLayout()
@@ -827,7 +889,7 @@ class EntityRow(QFrame):
 class EntityCreatePanel(QFrame):
 	"""Collapsible '+ New Entity' form for creating scene entities."""
 
-	def __init__(self, on_create: Callable[[str, int, int, bool, QColor], None], parent: QWidget | None = None) -> None:
+	def __init__(self, on_create: Callable[[str, int, int, QColor], None], parent: QWidget | None = None) -> None:
 		super().__init__(parent)
 		self.on_create = on_create
 		self.setFrameShape(QFrame.Shape.StyledPanel)
@@ -860,11 +922,6 @@ class EntityCreatePanel(QFrame):
 		self.count_spin.setValue(4)
 		form_layout.addWidget(self.count_spin, 2, 1)
 
-		form_layout.addWidget(QLabel("Homogeneous:"), 3, 0)
-		self.homogeneous_check = QCheckBox()
-		self.homogeneous_check.setChecked(True)
-		form_layout.addWidget(self.homogeneous_check, 3, 1)
-
 		form_layout.addWidget(QLabel("Color:"), 4, 0)
 		self.color_button = ColorSwatchButton(QColor(DEFAULT_QCOLOR))
 		form_layout.addWidget(self.color_button, 4, 1)
@@ -883,9 +940,8 @@ class EntityCreatePanel(QFrame):
 		kind = self.type_combo.currentText()
 		dim = self.dimension_spin.value()
 		count = self.count_spin.value()
-		homogeneous = self.homogeneous_check.isChecked()
 		color = QColor(self.color_button.color)
-		self.on_create(kind, dim, count, homogeneous, color)
+		self.on_create(kind, dim, count, color)
 
 
 class NDimLabWindow(QMainWindow):
@@ -1008,7 +1064,7 @@ class NDimLabWindow(QMainWindow):
 	def _set_column_major_global(self, checked: bool) -> None:
 		self.column_major_global = checked
 
-	def _create_entity(self, kind: str, dim: int, count: int, homogeneous: bool, color: QColor) -> None:
+	def _create_entity(self, kind: str, dim: int, count: int, color: QColor) -> None:
 		points = np.zeros((count, dim), dtype=np.float32)
 
 		entity: SceneEntity
@@ -1020,7 +1076,6 @@ class NDimLabWindow(QMainWindow):
 			entity = PointSet(self._dummy_scene, points)
 			entity.color = color
 
-		entity.homogeneous_display = homogeneous
 		self.scene_entities.append(entity)
 
 		row = EntityRow(self, entity, on_removed=self._remove_entity_row)
@@ -1191,7 +1246,6 @@ class SceneEntity(ABC):
 		self.dimension: int = self.original_points.shape[1] - 1  # Exclude homogeneous column
 		self.projection_matrix: NDArray = self._make_projection_matrix()
 		self.color: QColor = QColor(DEFAULT_QCOLOR)
-		self.homogeneous_display: bool = True
 
 	def _make_projection_matrix(self) -> NDArray:
 		"""Maps this entity's (dim+1)-homogeneous points down to 4-component clip space.
