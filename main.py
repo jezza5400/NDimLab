@@ -1,13 +1,14 @@
+import os
 import ast
 import math
 import operator
 import sys
 from abc import ABC, abstractmethod
 from collections import deque
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Type, cast
+from typing import cast
 import moderngl as mgl
 import numpy as np
 from numpy.typing import NDArray
@@ -30,6 +31,7 @@ from PySide6.QtGui import (
 	QWheelEvent,
 	QResizeEvent,
 	QCloseEvent,
+	QIcon,
 )
 from PySide6.QtWidgets import (
 	QApplication,
@@ -60,12 +62,16 @@ def load_shader(path: Path) -> str:
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+
 GRID_VERT_SHADER = load_shader(SCRIPT_DIR / "shaders" / "grid.vert")
 GRID_FRAG_SHADER = load_shader(SCRIPT_DIR / "shaders" / "grid.frag")
 TEXTURE_VERT = load_shader(SCRIPT_DIR / "shaders" / "texture.vert")
 TEXTURE_FRAG = load_shader(SCRIPT_DIR / "shaders" / "texture.frag")
 POLY_VERT = load_shader(SCRIPT_DIR / "shaders" / "poly.vert")
 POLY_FRAG = load_shader(SCRIPT_DIR / "shaders" / "poly.frag")
+
+ICON_PATH = Path(SCRIPT_DIR / "icons" / "app_icon.svg")
+
 
 # fmt: off
 BG_VERTS = np.array([
@@ -85,14 +91,14 @@ ZOOM_IN_FACTOR_TRACKPAD = 0.001
 
 
 class Evaluator:
-	BINARY_OPERATORS: dict[Type[ast.operator], Callable[[float, float], float]] = {
+	BINARY_OPERATORS: dict[type[ast.operator], Callable[[float, float], float]] = {
 		ast.Add: operator.add,
 		ast.Sub: operator.sub,
 		ast.Mult: operator.mul,
 		ast.Div: operator.truediv,
 	}
 
-	UNARY_OPERATORS: dict[Type[ast.unaryop], Callable[[float], float]] = {
+	UNARY_OPERATORS: dict[type[ast.unaryop], Callable[[float], float]] = {
 		ast.USub: operator.neg,
 		ast.UAdd: operator.pos,
 	}
@@ -675,11 +681,11 @@ class TransformationRow(QFrame):
 
 	def __init__(
 		self,
-		entity: "SceneEntity",
-		transformation: "Transformation",
-		on_removed: Callable[["TransformationRow"], None],
+		entity: SceneEntity,
+		transformation: Transformation,
+		on_removed: Callable[[TransformationRow], None],
 		on_changed: Callable[[], None],
-		on_move: Callable[["TransformationRow", int], None],
+		on_move: Callable[[TransformationRow, int], None],
 		parent: QWidget | None = None,
 	) -> None:
 		super().__init__(parent)
@@ -766,7 +772,7 @@ class TransformationRow(QFrame):
 class EntityRow(QFrame):
 	"""UI card for one SceneEntity: points editor + transformations list."""
 
-	def __init__(self, window: "NDimLabWindow", entity: "SceneEntity", on_removed: Callable[["EntityRow"], None], parent: QWidget | None = None) -> None:
+	def __init__(self, window: NDimLabWindow, entity: SceneEntity, on_removed: Callable[[EntityRow], None], parent: QWidget | None = None) -> None:
 		super().__init__(parent)
 		self.window_ref = window
 		self.entity = entity
@@ -1013,6 +1019,8 @@ class NDimLabWindow(QMainWindow):
 	def __init__(self, begin_paused: bool = False) -> None:
 		super().__init__()
 		self.setWindowTitle("NDimLab")
+		self.setWindowIcon(QIcon(str(ICON_PATH)))
+
 		self.paused: bool = begin_paused
 		self.scene_entities: list[SceneEntity] = []
 		self._has_reset = True
@@ -1309,7 +1317,7 @@ class Transformation:
 	name: str = ""
 	matrix_text: NDArray | None = None
 
-	def transposed(self) -> "Transformation":
+	def transposed(self) -> Transformation:
 		return Transformation(
 			matrix=self.matrix.T,
 			linear=self.linear,
@@ -1425,7 +1433,7 @@ class SceneEntity(ABC):
 				t.column_major = column_major
 		self.compute_transformations()
 
-	def fix_point_to(self, my_index: int, other_entity: "SceneEntity", other_index: int) -> None:
+	def fix_point_to(self, my_index: int, other_entity: SceneEntity, other_index: int) -> None:
 		self.fixed_point = FixedPoint(my_index, other_entity, other_index)
 
 	def compute_transformations(self) -> None:
@@ -1572,6 +1580,10 @@ if __name__ == "__main__":
 	QSurfaceFormat.setDefaultFormat(fmt)
 
 	app = QApplication(sys.argv)
+	if os.name == "nt":  # Only runs on Windows
+		import ctypes
+		myappid = "mycompany.myqtapp.main.1.0"
+		ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
 
 	window = NDimLabWindow(begin_paused=False)
 	window.show()
