@@ -1116,6 +1116,10 @@ class NDimLabWindow(QMainWindow):
 		reset_camera_action.setShortcut("Ctrl+Shift+0")
 		reset_camera_action.triggered.connect(lambda: self.opengl_widget.zoom(reset_camera_pos=True))
 
+		reset_trans_action = QAction("Reset &Transformations", self)
+		reset_trans_action.setShortcut("Ctrl+R")
+		reset_trans_action.triggered.connect(self.reset_transformations)
+
 		reset_zoom_action = QAction("Reset Zoom", self)
 		reset_zoom_action.setShortcut("Ctrl+0")
 		reset_zoom_action.triggered.connect(lambda: self.opengl_widget.zoom())
@@ -1135,6 +1139,7 @@ class NDimLabWindow(QMainWindow):
 
 		menu_bar_menu.addAction(pause_action)
 		menu_bar_menu.addAction(self.physics_step_action)
+		menu_bar_menu.addAction(reset_trans_action)
 		menu_bar_menu.addAction(debug_action)
 
 		menu_bar_view.addAction(reset_camera_action)
@@ -1227,6 +1232,17 @@ class NDimLabWindow(QMainWindow):
 
 		for entity in self.scene_entities:
 			entity.apply_continuous()
+
+	def reset_transformations(self) -> None:
+		"""Snaps every entity's points back to their typed-in position, re-applying
+		one-shot transforms but discarding accumulated continuous drift."""
+		for entity in self.scene_entities:
+			if entity.combined_one_shot_homogenous is not None:
+				entity.points[:] = entity.original_points @ entity.combined_one_shot_homogenous
+			else:
+				entity.points[:] = entity.original_points
+			entity._update_graphics_item()
+		self.opengl_widget.update()
 
 	def tick(self) -> None:
 		elapsed = self.timer.nsecsElapsed() / 1e9
@@ -1509,7 +1525,10 @@ class Polygon(SceneEntity):
 	"""Nice name for default polygon SceneEntity"""
 
 	def _polygon_from_points(self) -> QPolygonF:
-		return QPolygonF([QPointF(x, y) for x, y, _ in self.points])
+		pts = self.points
+		xs = pts[:, 0] if pts.shape[1] > 0 else np.zeros(pts.shape[0])
+		ys = pts[:, 1] if pts.shape[1] > 1 else np.zeros(pts.shape[0])
+		return QPolygonF([QPointF(float(x), float(y)) for x, y in zip(xs, ys)])
 
 	def _create_graphics_item(self) -> QGraphicsPolygonItem:
 		return self.scene.addPolygon(self._polygon_from_points(), self.pen)
@@ -1582,6 +1601,7 @@ if __name__ == "__main__":
 	app = QApplication(sys.argv)
 	if os.name == "nt":  # Only runs on Windows
 		import ctypes
+
 		myappid = "mycompany.myqtapp.main.1.0"
 		ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
 
