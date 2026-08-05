@@ -1,5 +1,6 @@
-import numpy as np
 import timeit
+
+import numpy as np
 
 view_once = 0
 view_each = 0

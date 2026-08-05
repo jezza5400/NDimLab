@@ -1,41 +1,44 @@
-import os
 import ast
 import math
 import operator
+import os
 import sys
 from abc import ABC, abstractmethod
 from collections import deque
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
+from typing import ClassVar, cast
+
 import moderngl as mgl
 import numpy as np
 from numpy.typing import NDArray
 from PySide6.QtCore import (
-	Qt,
-	QPointF,
-	QTimer,
 	QElapsedTimer,
+	QPointF,
+	Qt,
+	QTimer,
 	Signal,
 )
 from PySide6.QtGui import (
 	QAction,
+	QCloseEvent,
 	QColor,
+	QIcon,
 	QKeyEvent,
 	QMouseEvent,
 	QPainter,
 	QPen,
 	QPolygonF,
+	QResizeEvent,
 	QSurfaceFormat,
 	QWheelEvent,
-	QResizeEvent,
-	QCloseEvent,
-	QIcon,
 )
+from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from PySide6.QtWidgets import (
 	QApplication,
 	QCheckBox,
+	QColorDialog,
 	QComboBox,
 	QFrame,
 	QGraphicsItem,
@@ -47,14 +50,12 @@ from PySide6.QtWidgets import (
 	QLineEdit,
 	QMainWindow,
 	QPushButton,
-	QColorDialog,
 	QScrollArea,
 	QSpinBox,
 	QSplitter,
 	QVBoxLayout,
 	QWidget,
 )
-from PySide6.QtOpenGLWidgets import QOpenGLWidget
 
 
 def load_shader(path: Path) -> str:
@@ -91,20 +92,20 @@ ZOOM_IN_FACTOR_TRACKPAD = 0.001
 
 
 class Evaluator:
-	BINARY_OPERATORS: dict[type[ast.operator], Callable[[float, float], float]] = {
+	BINARY_OPERATORS: ClassVar[dict[type[ast.operator], Callable[[float, float], float]]] = {
 		ast.Add: operator.add,
 		ast.Sub: operator.sub,
 		ast.Mult: operator.mul,
 		ast.Div: operator.truediv,
 	}
 
-	UNARY_OPERATORS: dict[type[ast.unaryop], Callable[[float], float]] = {
+	UNARY_OPERATORS: ClassVar[dict[type[ast.unaryop], Callable[[float], float]]] = {
 		ast.USub: operator.neg,
 		ast.UAdd: operator.pos,
 	}
 
 	# Trig functions take/return degrees
-	FUNCTIONS: dict[str, Callable[[float], float]] = {
+	FUNCTIONS: ClassVar[dict[str, Callable[[float], float]]] = {
 		"sin": lambda x: math.sin(math.radians(x)),
 		"cos": lambda x: math.cos(math.radians(x)),
 		"tan": lambda x: math.tan(math.radians(x)),
@@ -225,7 +226,7 @@ class MatrixLineEdit(QLineEdit):
 		key = arg__1.key()
 		text = arg__1.text()
 
-		if key in (
+		is_nav_key = key in (
 			Qt.Key.Key_Backspace,
 			Qt.Key.Key_Delete,
 			Qt.Key.Key_Left,
@@ -237,10 +238,11 @@ class MatrixLineEdit(QLineEdit):
 			Qt.Key.Key_Return,
 			Qt.Key.Key_Enter,
 			Qt.Key.Key_Tab,
-		):
-			super().keyPressEvent(arg__1)
+		)
 
-		elif arg__1.modifiers() & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.MetaModifier):
+		has_ctrl = arg__1.modifiers() & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.MetaModifier)
+
+		if is_nav_key or has_ctrl:
 			super().keyPressEvent(arg__1)
 
 		elif text == "*":

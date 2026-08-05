@@ -1,9 +1,10 @@
-from math import cos, sin, pi
 import sys
+from math import cos, pi, sin
+
 import numpy as np
+from PySide6.QtCore import QElapsedTimer, QPointF, Qt, QTimer
+from PySide6.QtGui import QColor, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import QApplication, QGraphicsScene, QGraphicsView
-from PySide6.QtGui import QPen, QPolygonF, QPainter, QColor
-from PySide6.QtCore import Qt, QPointF, QTimer, QElapsedTimer
 
 app = QApplication(sys.argv)
 scene = QGraphicsScene(-5, -5, 10, 10)

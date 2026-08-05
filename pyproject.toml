@@ -24,7 +24,7 @@ indent-style = "tab"
 line-ending = "lf"
 
 [tool.ruff.lint]
-select = ["PLW0602", "PLW0603", "PLW0604"]
+extend-select = ["PLW0602", "PLW0603", "PLW0604"]
 
 
 [tool.pyright]

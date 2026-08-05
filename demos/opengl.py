@@ -1,12 +1,13 @@
-from typing import cast
-from PySide6.QtOpenGL import QOpenGLWindow
 import sys
 from pathlib import Path
-from PySide6.QtCore import Qt, QPointF
-from PySide6.QtGui import QSurfaceFormat, QWindow, QKeyEvent, QMouseEvent, QCloseEvent
-from PySide6.QtWidgets import QApplication
+from typing import cast
+
 import moderngl as mgl
 import numpy as np
+from PySide6.QtCore import QPointF, Qt
+from PySide6.QtGui import QCloseEvent, QKeyEvent, QMouseEvent, QSurfaceFormat, QWindow
+from PySide6.QtOpenGL import QOpenGLWindow
+from PySide6.QtWidgets import QApplication
 
 
 def load_shader(path: Path) -> str:

@@ -1,7 +1,8 @@
 import sys
+
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPainter, QPen, QKeyEvent
-from PySide6.QtWidgets import QApplication, QWidget, QGridLayout, QLineEdit, QVBoxLayout
+from PySide6.QtGui import QKeyEvent, QPainter, QPen
+from PySide6.QtWidgets import QApplication, QGridLayout, QLineEdit, QVBoxLayout, QWidget
 
 
 class MatrixLineEdit(QLineEdit):
