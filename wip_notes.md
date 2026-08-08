@@ -1,3 +1,34 @@
+# TODO
+
+Matrix & NDC Optimization (Homogeneous 'w' Scaling):
+
+- Keep original 2D/3D mesh points static in VRAM (VBO). Do NOT update vertex arrays on CPU during window/viewport resize.
+- Update the single Uniform Projection Matrix on resize instead:
+  - Scale terms in matrix (like bottom-right 'w' or matrix scale factors) handle aspect ratio and global unit scaling.
+  - Recall: NDC (Normalized Device Coordinates) expects coordinates mapped from -1 to +1.
+      The GPU auto-performs Perspective Divide (x/w, y/w, z/w) post-vertex shader.
+- Note for Vulkan setup:
+  - Ensure GLSL/HLSL column vs. row-major layout matches host memory layout.
+  - Flip Y-axis scale in Projection Matrix (Vulkan NDC Y is inverted compared to OpenGL).
+
+Evaluate Migration to Slang Shading Language:
+
+- Language & Features:
+  - Slang uses modern C#-like syntax (attributes `[...]`, generics, interfaces, modules).
+  - FOSS & Vendor-Neutral: Hosted by Khronos Group (multi-vendor governance).
+  - Code Once, Target Anything: Compiles to SPIR-V (Vulkan), HLSL (DX12), MSL (Metal), CUDA, or GLSL.
+
+- ModernGL / Python Integration:
+  - Use `slangc` CLI or Slang API to emit GLSL target strings (`-target glsl`).
+  - Pass compiled GLSL output into `ctx.program(...)` in ModernGL.
+  - Check out `slangpy` if integrating GPU compute shaders with PyTorch/NumPy workflows.
+
+One-shot transformations get applied even when paused and also do not get rest when ctrl+r pressed.
+
+Add a per-entity polygon/points toggle.
+
+Add toggle to make Z-Value effect draw order.
+
 # demos/opengl.py
 
 ## Critical
