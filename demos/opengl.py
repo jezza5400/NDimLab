@@ -33,7 +33,7 @@ class OpenGLWindow(QOpenGLWindow):
 		super().__init__(parent=parent)
 		self.setTitle("OpenGL Stuff")
 
-		self.zoom_level = 30
+		self.zoom_level: float = 30
 		self.OG_ZOOM = self.zoom_level
 		self.camera_pos: tuple[int | float, int | float] = (0, 0)
 		self.mouse_pos = cast(QPointF, None)

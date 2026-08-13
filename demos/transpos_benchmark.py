@@ -15,18 +15,21 @@ for _ in range(10):
 	rotation_T = rotation.T
 	rotation_T_copy = rotation.T.copy()
 
-	t_view_once = timeit.timeit(lambda: rotation_T[500, 500], number=1_000_000) / 1_000_000
-	t_view_each = timeit.timeit(lambda: rotation.T[500, 500], number=1_000_000) / 1_000_000
-	t_copy = timeit.timeit(lambda: rotation_T_copy[500, 500], number=1_000_000) / 1_000_000
+	t_view_once = timeit.timeit(lambda r=rotation_T: r[500, 500], number=1_000_000) / 1_000_000
+	t_view_each = timeit.timeit(lambda r=rotation: r.T[500, 500], number=1_000_000) / 1_000_000
+	t_copy = timeit.timeit(lambda r=rotation_T_copy: r[500, 500], number=1_000_000) / 1_000_000
+
+	t_make_view = timeit.timeit(lambda r=rotation: r.T, number=1_000_000) / 1_000_000
+	t_make_copy = timeit.timeit(lambda r=rotation: r.T.copy(), number=100) / 100
 
 	# Measure cost of creating the matrix itself
 	t_make_matrix = timeit.timeit(lambda: np.random.rand(1000, 1000), number=100) / 100
 
 	# Measure cost of creating the .T view
-	t_make_view = timeit.timeit(lambda: rotation.T, number=1_000_000) / 1_000_000
+	t_make_view = timeit.timeit(lambda r=rotation: r.T, number=1_000_000) / 1_000_000
 
 	# Measure cost of creating the .T.copy() full copy
-	t_make_copy = timeit.timeit(lambda: rotation.T.copy(), number=100) / 100
+	t_make_copy = timeit.timeit(lambda r=rotation: r.T.copy(), number=100) / 100
 
 	make_matrix_cost += t_make_matrix
 	make_view_cost += t_make_view

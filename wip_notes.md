@@ -23,11 +23,11 @@ Evaluate Migration to Slang Shading Language:
   - Pass compiled GLSL output into `ctx.program(...)` in ModernGL.
   - Check out `slangpy` if integrating GPU compute shaders with PyTorch/NumPy workflows.
 
-One-shot transformations get applied even when paused and also do not get rest when ctrl+r pressed.
-
 Add a per-entity polygon/points toggle.
 
 Add toggle to make Z-Value effect draw order.
+
+Add more obvious paused indicator.
 
 # demos/opengl.py
 

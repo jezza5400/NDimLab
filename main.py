@@ -73,7 +73,6 @@ POLY_FRAG = load_shader(SCRIPT_DIR / "shaders" / "poly.frag")
 
 ICON_PATH = Path(SCRIPT_DIR / "icons" / "app_icon.svg")
 
-
 # fmt: off
 BG_VERTS = np.array([
 	-1.0, -1.0, 1.0, -1.0, 1.0, 1.0,
@@ -390,7 +389,7 @@ class OpenGLWidget(QOpenGLWidget):
 	def __init__(self, parent: QWidget | None = None) -> None:
 		super().__init__(parent=parent)
 
-		self.zoom_level = 30
+		self.zoom_level: float = 30
 		self.OG_ZOOM = self.zoom_level
 		self.camera_pos: tuple[int | float, int | float] = (0, 0)
 		self.mouse_pos: QPointF | None = None
@@ -946,7 +945,6 @@ class EntityRow(QFrame):
 			self.transformations_container.addWidget(row)
 
 	def _apply_and_repaint(self) -> None:
-		self.entity.apply_one_shot()
 		self._repaint()
 
 	def _repaint(self) -> None:
@@ -1025,7 +1023,6 @@ class NDimLabWindow(QMainWindow):
 
 		self.paused: bool = begin_paused
 		self.scene_entities: list[SceneEntity] = []
-		self._has_reset = True
 		self._debug_mode = False
 		self._dummy_scene = QGraphicsScene()  # required by SceneEntity.__init__; unused for GPU rendering
 		self.entity_rows: list[EntityRow] = []
@@ -1164,7 +1161,6 @@ class NDimLabWindow(QMainWindow):
 
 		for entity in self.scene_entities:
 			entity.set_column_major(checked)
-			entity.apply_one_shot()
 
 		for row in self.entity_rows:
 			row.rebuild_transformation_rows()
@@ -1227,23 +1223,14 @@ class NDimLabWindow(QMainWindow):
 		self.overlay.move(x, 0)
 
 	def update_scene_entities(self) -> None:
-		if self._has_reset:
-			for entity in self.scene_entities:
-				entity.apply_one_shot()
-			self._has_reset = False
-
 		for entity in self.scene_entities:
-			entity.apply_continuous()
+			entity.apply_transformations()
 
 	def reset_transformations(self) -> None:
-		"""Snaps every entity's points back to their typed-in position, re-applying
-		one-shot transforms but discarding accumulated continuous drift."""
 		for entity in self.scene_entities:
-			if entity.combined_one_shot_homogenous is not None:
-				entity.points[:] = entity.original_points @ entity.combined_one_shot_homogenous
-			else:
-				entity.points[:] = entity.original_points
-			entity._update_graphics_item()
+			entity.points[:] = entity.original_points
+			entity.oneshot_applied = False
+			entity.update_graphics_item()
 		self.opengl_widget.update()
 
 	def tick(self) -> None:
@@ -1364,6 +1351,7 @@ class SceneEntity(ABC):
 		self.original_points[:, -1] = 1
 		self.points: NDArray = self.original_points.copy()
 		self.column_major: bool = column_major
+		self.oneshot_applied: bool = False
 		self.fixed_point: FixedPoint | None = fixed_point
 		self.transformations: list[Transformation] = []
 		self.combined_one_shot: list[Transformation] = []
@@ -1396,10 +1384,10 @@ class SceneEntity(ABC):
 		"""Create and return the scene graphics item representing this entity."""
 		raise NotImplementedError
 
-	def _update_graphics_item(self) -> None:
+	def update_graphics_item(self) -> None:
 		"""Sync the graphics item with self.points. Override in subclasses that render something."""
 
-	def add_to_scene(self, render_order: float = 1, color: QColor = QColor("#00AFFF")) -> None:
+	def add_to_scene(self, render_order: float = 1, color: QColor = DEFAULT_QCOLOR) -> None:
 		self.pen = QPen(color, 2)
 		self.pen.setCosmetic(True)
 		self.graphics_item = self._create_graphics_item()
@@ -1500,12 +1488,6 @@ class SceneEntity(ABC):
 		self.combined_one_shot_homogenous = np.linalg.multi_dot(one_shot_h) if len(one_shot_h) > 1 else one_shot_h[0] if one_shot_h else None
 		self.combined_continuous_homogenous = np.linalg.multi_dot(continuous_h) if len(continuous_h) > 1 else continuous_h[0] if continuous_h else None
 
-	def apply_one_shot(self) -> None:
-		if self.combined_one_shot_homogenous is None:
-			return
-		self.points[:] = self.original_points @ self.combined_one_shot_homogenous
-		self._update_graphics_item()
-
 	def _apply_fixed_point(self) -> None:
 		if self.fixed_point is None:
 			return
@@ -1515,12 +1497,19 @@ class SceneEntity(ABC):
 
 		self.points[:, :-1] += delta[:-1]
 
-	def apply_continuous(self) -> None:
-		if self.combined_continuous_homogenous is None:
-			return
-		self.points[:] = self.points @ self.combined_continuous_homogenous
-		self._apply_fixed_point()
-		self._update_graphics_item()
+	def apply_transformations(self) -> None:
+		if self.oneshot_applied:
+			if self.combined_continuous_homogenous is None:
+				return
+			self.points[:] = self.points @ self.combined_continuous_homogenous
+			self._apply_fixed_point()
+			self.update_graphics_item()
+		else:
+			self.oneshot_applied = True
+			if self.combined_one_shot_homogenous is None:
+				return
+			self.points[:] = self.original_points @ self.combined_one_shot_homogenous
+			self.update_graphics_item()
 
 
 class Polygon(SceneEntity):
@@ -1607,7 +1596,7 @@ if __name__ == "__main__":
 		myappid = "mycompany.myqtapp.main.1.0"
 		ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
 
-	window = NDimLabWindow(begin_paused=False)
+	window = NDimLabWindow(begin_paused=True)
 	window.show()
 	window.resize(500, 500)
 
