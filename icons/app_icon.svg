@@ -1,19 +1,21 @@
-<svg xmlns="http://w3.org" viewBox="0 0 200 120" width="100%" height="100%">
-	<!-- Left Matrix Bracket (Moved in to x=55 and x=40) -->
-	<path d="M 55,20 H 40 V 100 H 55" fill="none" stroke="#00A3A6" stroke-width="3" stroke-linecap="square" />
+<svg xmlns="http://w3.org" viewBox="0 0 128 128" width="100%" height="100%">
+	<!-- Left Matrix Bracket (Original full size, just thinner) -->
+	<path d="M 40,20 H 16 V 108 H 40" fill="none" stroke="#00A3A6" stroke-width="8"
+		stroke-linecap="square" stroke-linejoin="miter" />
 
-	<!-- Right Matrix Bracket (Moved in to x=145 and x=160) -->
-	<path d="M 145,20 H 160 V 100 H 145" fill="none" stroke="#00A3A6" stroke-width="3" stroke-linecap="square" />
+	<!-- Right Matrix Bracket (Original full size, just thinner) -->
+	<path d="M 88,20 H 112 V 108 H 88" fill="none" stroke="#00A3A6" stroke-width="8"
+		stroke-linecap="square" stroke-linejoin="miter" />
 
-	<!-- Matrix Values (Brought closer to the center) -->
-	<g font-family="system-ui, -apple-system, sans-serif" font-size="32" font-weight="normal" fill="#00A3A6"
-		text-anchor="middle">
+	<!-- Matrix Values (Thinned to match the sleek brackets) -->
+	<g font-family="system-ui, -apple-system, sans-serif" font-size="38" font-weight="600"
+		fill="#00A3A6" text-anchor="middle">
 		<!-- Row 1 -->
-		<text x="78" y="52">1</text>
-		<text x="122" y="52">0</text>
+		<text x="44" y="57">1</text>
+		<text x="84" y="57">0</text>
 
 		<!-- Row 2 -->
-		<text x="78" y="90">0</text>
-		<text x="122" y="90">1</text>
+		<text x="44" y="97">0</text>
+		<text x="84" y="97">1</text>
 	</g>
 </svg>
