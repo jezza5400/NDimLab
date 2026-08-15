@@ -40,6 +40,7 @@ from PySide6.QtWidgets import (
 	QCheckBox,
 	QColorDialog,
 	QComboBox,
+	QDoubleSpinBox,
 	QFrame,
 	QGraphicsItem,
 	QGraphicsPolygonItem,
@@ -487,7 +488,11 @@ class OpenGLWidget(QOpenGLWidget):
 			self.u_poly_zoom.value = self.zoom_level
 			self.u_poly_resolution.value = (w, h)
 
-			for entity in top_level.scene_entities:
+			render_entities = top_level.scene_entities
+			if top_level.z_order_enabled:
+				render_entities = sorted(render_entities, key=lambda e: e.z_value)
+
+			for entity in render_entities:
 				points_data = np.ascontiguousarray(entity.points[:, : entity.dimension], dtype=np.float32).tobytes()
 
 				if self.poly_ssbo is None or self.poly_ssbo.size < len(points_data):
@@ -508,7 +513,7 @@ class OpenGLWidget(QOpenGLWidget):
 				self.u_poly_dimension.write(np.uint32(entity.dimension).tobytes())
 				self.u_poly_pointColor.write(entity.get_color_array().tobytes())
 
-				primitive = mgl.LINE_LOOP if isinstance(entity, Polygon) else mgl.POINTS
+				primitive = mgl.LINE_LOOP if entity.is_polygon else mgl.POINTS
 				self.poly_vao.render(primitive, vertices=entity.points.shape[0])
 
 	def resizeGL(self, w: int, h: int) -> None:
@@ -797,10 +802,26 @@ class EntityRow(QFrame):
 		down_btn.clicked.connect(lambda: self.window_ref.move_entity_row(self, 1))
 		header.addWidget(down_btn)
 
-		kind = "Polygon" if isinstance(entity, Polygon) else "Points"
-		self.title_label = QLabel(f"{kind} ({entity.dimension}D, {entity.points.shape[0]} pts)")
+		self.title_label = QLabel(self._title_text())
 		header.addWidget(self.title_label)
 		header.addStretch()
+
+		self.kind_button = QPushButton("Polygon" if entity.is_polygon else "Points")
+		self.kind_button.setCheckable(True)
+		self.kind_button.setChecked(entity.is_polygon)
+		self.kind_button.setFixedWidth(64)
+		self.kind_button.toggled.connect(self._kind_toggled)
+		header.addWidget(self.kind_button)
+
+		header.addWidget(QLabel("Z:"))
+		self.z_value_spin = QDoubleSpinBox()
+		self.z_value_spin.setRange(-9999.0, 9999.0)
+		self.z_value_spin.setDecimals(2)
+		self.z_value_spin.setSingleStep(1.0)
+		self.z_value_spin.setFixedWidth(64)
+		self.z_value_spin.setValue(entity.z_value)
+		self.z_value_spin.valueChanged.connect(self._z_value_changed)
+		header.addWidget(self.z_value_spin)
 
 		self.color_button = ColorSwatchButton(entity.color)
 		self.color_button.color_changed = self._color_changed
@@ -870,6 +891,20 @@ class EntityRow(QFrame):
 
 		self.points_widget = self._make_points_widget()
 		self.points_row_layout.addWidget(self.points_widget)
+
+	def _title_text(self) -> str:
+		kind = "Polygon" if self.entity.is_polygon else "Points"
+		return f"{kind} ({self.entity.dimension}D, {self.entity.points.shape[0]} pts)"
+
+	def _kind_toggled(self, checked: bool) -> None:
+		self.entity.set_is_polygon(checked)
+		self.kind_button.setText("Polygon" if checked else "Points")
+		self.title_label.setText(self._title_text())
+		self._repaint()
+
+	def _z_value_changed(self, value: float) -> None:
+		self.entity.set_z_value(value)
+		self._repaint()
 
 	def _toggle_expanded(self) -> None:
 		visible = not self.body.isVisible()
@@ -1027,19 +1062,33 @@ class NDimLabWindow(QMainWindow):
 		self._dummy_scene = QGraphicsScene()  # required by SceneEntity.__init__; unused for GPU rendering
 		self.entity_rows: list[EntityRow] = []
 		self.column_major_global: bool = False
+		self.z_order_enabled: bool = False
 		self.ticks_per_second: int = 60
 
 		# --- Sidebar ---
 		sidebar = QWidget()
-		sidebar.setMinimumWidth(300)
+		sidebar.setMinimumWidth(450)
 		sidebar_layout = QVBoxLayout(sidebar)
-		sidebar_layout.addWidget(QLabel("<h2>Scene Entities</h2>"))
+
+		title_row = QHBoxLayout()
+		title_row.addWidget(QLabel("<h2>Scene Entities</h2>"))
+		self.pause_indicator = QLabel()
+		self.pause_indicator.setStyleSheet("font-weight: bold; font-size: 13px;")
+		title_row.addWidget(self.pause_indicator)
+		title_row.addStretch()
+		sidebar_layout.addLayout(title_row)
+		self._update_pause_indicator()
 
 		col_major_row = QHBoxLayout()
 		col_major_row.addWidget(QLabel("Column-major input:"))
 		self.column_major_checkbox = QCheckBox()
 		self.column_major_checkbox.toggled.connect(self._set_column_major_global)
 		col_major_row.addWidget(self.column_major_checkbox)
+		col_major_row.addSpacing(12)
+		col_major_row.addWidget(QLabel("Z-order draw:"))
+		self.z_order_checkbox = QCheckBox()
+		self.z_order_checkbox.toggled.connect(self._set_z_order_enabled)
+		col_major_row.addWidget(self.z_order_checkbox)
 		col_major_row.addSpacing(12)
 		col_major_row.addWidget(QLabel("Ticks/sec:"))
 		self.tick_rate_spin = QSpinBox()
@@ -1156,6 +1205,10 @@ class NDimLabWindow(QMainWindow):
 		self.ticks_per_second = value
 		self.tick_timer.setInterval(self._tick_interval_ms())
 
+	def _set_z_order_enabled(self, checked: bool) -> None:
+		self.z_order_enabled = checked
+		self.opengl_widget.update()
+
 	def _set_column_major_global(self, checked: bool) -> None:
 		self.column_major_global = checked
 
@@ -1179,6 +1232,10 @@ class NDimLabWindow(QMainWindow):
 		else:
 			entity = PointSet(self._dummy_scene, points)
 			entity.color = color
+
+		# Distinct default so z-order sorting isn't a same-Z tie (which falls back to list
+		# position) for freshly created entities. Purely a starting point - editable per entity.
+		entity.z_value = float(len(self.scene_entities))
 
 		self.scene_entities.append(entity)
 
@@ -1254,6 +1311,14 @@ class NDimLabWindow(QMainWindow):
 		if any(entity.combined_continuous_homogenous is not None for entity in self.scene_entities):
 			self.opengl_widget.update()
 
+	def _update_pause_indicator(self) -> None:
+		if self.paused:
+			self.pause_indicator.setText("● Paused")
+			self.pause_indicator.setStyleSheet("font-weight: bold; font-size: 13px; color: #ef4444;")
+		else:
+			self.pause_indicator.setText("● Running")
+			self.pause_indicator.setStyleSheet("font-weight: bold; font-size: 13px; color: #22c55e;")
+
 	def pause_button_clicked(self, state: bool) -> None:
 		self.paused = state
 		self.physics_step_action.setEnabled(state)
@@ -1261,6 +1326,7 @@ class NDimLabWindow(QMainWindow):
 			self.tick_timer.stop()
 		else:
 			self.tick_timer.start(self._tick_interval_ms())
+		self._update_pause_indicator()
 
 	def physics_step_clicked(self) -> None:
 		self.update_scene_entities()
@@ -1343,6 +1409,8 @@ class FixedPoint:
 
 
 class SceneEntity(ABC):
+	IS_POLYGON: ClassVar[bool] = True
+
 	def __init__(self, scene: QGraphicsScene, points: NDArray, column_major: bool = False, fixed_point: FixedPoint | None = None) -> None:
 		self.scene: QGraphicsScene = scene
 		points_view: NDArray = points.T if column_major else points
@@ -1362,6 +1430,14 @@ class SceneEntity(ABC):
 		self.dimension: int = self.original_points.shape[1] - 1  # Exclude homogeneous column
 		self.projection_matrix: NDArray = self._make_projection_matrix()
 		self.color: QColor = QColor(DEFAULT_QCOLOR)
+		self.is_polygon: bool = self.IS_POLYGON  # drives GPU primitive; toggleable independently of Python type via set_is_polygon()
+		self.z_value: float = 0.0  # drives draw order only when the window's z-order mode is enabled
+
+	def set_is_polygon(self, value: bool) -> None:
+		self.is_polygon = value
+
+	def set_z_value(self, value: float) -> None:
+		self.z_value = value
 
 	def _make_projection_matrix(self) -> NDArray:
 		"""Maps this entity's (dim+1)-homogeneous points down to 4-component clip space.
@@ -1524,11 +1600,13 @@ class Polygon(SceneEntity):
 	def _create_graphics_item(self) -> QGraphicsPolygonItem:
 		return self.scene.addPolygon(self._polygon_from_points(), self.pen)
 
-	def _update_graphics_item(self) -> None:
+	def update_graphics_item(self) -> None:
 		cast(QGraphicsPolygonItem, self.graphics_item).setPolygon(self._polygon_from_points())
 
 
 class PointSet(SceneEntity):
+	IS_POLYGON: ClassVar[bool] = False
+
 	def __init__(self, scene: QGraphicsScene, points: NDArray, column_major: bool = False) -> None:
 		super().__init__(scene, points, column_major)
 
@@ -1593,7 +1671,7 @@ if __name__ == "__main__":
 	if os.name == "nt":  # Only runs on Windows
 		import ctypes
 
-		myappid = "mycompany.myqtapp.main.1.0"
+		myappid = "jeremy.ndimlab.main.1.0"
 		ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
 
 	window = NDimLabWindow(begin_paused=True)
