@@ -43,6 +43,9 @@ void main() {
 	vec2 ndc_scale = (2.0 * u_zoom) / u_resolution;
 	clipPos.xy = ndc_scale * (clipPos.xy - u_camera_pos);
 
+	const float PI_OVER_2 = acos(0.0);
+	clipPos.z = -atan(clipPos.z / 4) / PI_OVER_2; // Compress z into [-1, 1] while keeping +z as up
+
 	gl_Position = clipPos;
 	vertColor = u_pointColor;
 	gl_PointSize = 8.0;

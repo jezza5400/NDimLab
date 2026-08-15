@@ -40,7 +40,6 @@ from PySide6.QtWidgets import (
 	QCheckBox,
 	QColorDialog,
 	QComboBox,
-	QDoubleSpinBox,
 	QFrame,
 	QGraphicsItem,
 	QGraphicsPolygonItem,
@@ -467,30 +466,40 @@ class OpenGLWidget(QOpenGLWidget):
 		self.makeCurrent()
 
 		self.screen_fbo.use()
-		self.ctx.clear(0.0, 0.0, 0.0, 1.0)
+		self.ctx.clear(0.0, 0.0, 0.0, 1.0, depth=1.0)
 
 		ratio = self.devicePixelRatioF()
 		w, h = int(self.width() * ratio), int(self.height() * ratio)
 
+		top_level = self.window()
+		z_order_enabled = isinstance(top_level, NDimLabWindow) and top_level.z_order_enabled
+		if z_order_enabled:
+			self.ctx.enable(mgl.DEPTH_TEST)
+		else:
+			self.ctx.disable(mgl.DEPTH_TEST)
+
+		# Always draw the grid first so it stays behind the entities.
 		if self.is_panning or self.is_zooming or self.grid_texture is None:
+			self.ctx.disable(mgl.DEPTH_TEST)
 			self.u_bg_resolution.value = (w, h)
 			self.u_bg_camera_pos.value = (self.camera_pos[0], self.camera_pos[1])
 			self.u_bg_zoom.value = self.zoom_level
-
 			self.bg_vao.render(mgl.TRIANGLES)
+			if z_order_enabled:
+				self.ctx.enable(mgl.DEPTH_TEST)
 		else:
+			self.ctx.disable(mgl.DEPTH_TEST)
 			self.grid_texture.use(location=0)
 			self.tex_vao.render(mgl.TRIANGLES)
+			if z_order_enabled:
+				self.ctx.enable(mgl.DEPTH_TEST)
 
-		top_level = self.window()
 		if isinstance(top_level, NDimLabWindow):
 			self.u_poly_camera_pos.value = (self.camera_pos[0], self.camera_pos[1])
 			self.u_poly_zoom.value = self.zoom_level
 			self.u_poly_resolution.value = (w, h)
 
 			render_entities = top_level.scene_entities
-			if top_level.z_order_enabled:
-				render_entities = sorted(render_entities, key=lambda e: e.z_value)
 
 			for entity in render_entities:
 				points_data = np.ascontiguousarray(entity.points[:, : entity.dimension], dtype=np.float32).tobytes()
@@ -813,16 +822,6 @@ class EntityRow(QFrame):
 		self.kind_button.toggled.connect(self._kind_toggled)
 		header.addWidget(self.kind_button)
 
-		header.addWidget(QLabel("Z:"))
-		self.z_value_spin = QDoubleSpinBox()
-		self.z_value_spin.setRange(-9999.0, 9999.0)
-		self.z_value_spin.setDecimals(2)
-		self.z_value_spin.setSingleStep(1.0)
-		self.z_value_spin.setFixedWidth(64)
-		self.z_value_spin.setValue(entity.z_value)
-		self.z_value_spin.valueChanged.connect(self._z_value_changed)
-		header.addWidget(self.z_value_spin)
-
 		self.color_button = ColorSwatchButton(entity.color)
 		self.color_button.color_changed = self._color_changed
 		header.addWidget(self.color_button)
@@ -900,10 +899,6 @@ class EntityRow(QFrame):
 		self.entity.set_is_polygon(checked)
 		self.kind_button.setText("Polygon" if checked else "Points")
 		self.title_label.setText(self._title_text())
-		self._repaint()
-
-	def _z_value_changed(self, value: float) -> None:
-		self.entity.set_z_value(value)
 		self._repaint()
 
 	def _toggle_expanded(self) -> None:
@@ -1207,6 +1202,11 @@ class NDimLabWindow(QMainWindow):
 
 	def _set_z_order_enabled(self, checked: bool) -> None:
 		self.z_order_enabled = checked
+		if self.opengl_widget.ctx is not None:
+			if checked:
+				self.opengl_widget.ctx.enable(mgl.DEPTH_TEST)
+			else:
+				self.opengl_widget.ctx.disable(mgl.DEPTH_TEST)
 		self.opengl_widget.update()
 
 	def _set_column_major_global(self, checked: bool) -> None:
@@ -1232,10 +1232,6 @@ class NDimLabWindow(QMainWindow):
 		else:
 			entity = PointSet(self._dummy_scene, points)
 			entity.color = color
-
-		# Distinct default so z-order sorting isn't a same-Z tie (which falls back to list
-		# position) for freshly created entities. Purely a starting point - editable per entity.
-		entity.z_value = float(len(self.scene_entities))
 
 		self.scene_entities.append(entity)
 
@@ -1431,13 +1427,9 @@ class SceneEntity(ABC):
 		self.projection_matrix: NDArray = self._make_projection_matrix()
 		self.color: QColor = QColor(DEFAULT_QCOLOR)
 		self.is_polygon: bool = self.IS_POLYGON  # drives GPU primitive; toggleable independently of Python type via set_is_polygon()
-		self.z_value: float = 0.0  # drives draw order only when the window's z-order mode is enabled
 
 	def set_is_polygon(self, value: bool) -> None:
 		self.is_polygon = value
-
-	def set_z_value(self, value: float) -> None:
-		self.z_value = value
 
 	def _make_projection_matrix(self) -> NDArray:
 		"""Maps this entity's (dim+1)-homogeneous points down to 4-component clip space.
