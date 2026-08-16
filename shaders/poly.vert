@@ -44,7 +44,8 @@ void main() {
 	clipPos.xy = ndc_scale * (clipPos.xy - u_camera_pos);
 
 	const float PI_OVER_2 = acos(0.0);
-	clipPos.z = -atan(clipPos.z / 4) / PI_OVER_2; // Compress z into [-1, 1] while keeping +z as up
+	const float Z_COMPRESS = 4.;  // larger = flatter falloff = more usable Z range
+	clipPos.z = -atan(clipPos.z / Z_COMPRESS) / PI_OVER_2;  // Compress z into [-1, 1] keeping +z pointing out screen
 
 	gl_Position = clipPos;
 	vertColor = u_pointColor;

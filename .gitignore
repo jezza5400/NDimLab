@@ -1,3 +1,74 @@
+# Byte-compiled / optimized / native modules
 __pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Caches and tools (Ruff, pytest, mypy, hypothesis)
 .ruff_cache/
+.pytest_cache/
+.mypy_cache/
+.cache/
+.hypothesis/
+.dmypy.json
+dmypy.json
+
+# Environments (uv, venv, conda)
 .venv/
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.Python
+__pypackages__/
+
+# Environment variables & secrets
+.env
+.envrc
+.pypirc
+
+# Distribution / packaging / build artifacts
+build/
+develop-eggs/
+downloads/
+eggs/
+.eggs/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+*.manifest
+*.spec
+
+# Logs and test / coverage reports
+pip-log.txt
+pip-delete-this-directory.txt
+htmlcov/
+cover/
+.tox/
+.nox/
+.coverage
+.coverage.*
+nosetests.xml
+coverage.xml
+*.cover
+*.py.cover
+*.lcov
+
+# Translations
+*.mo
+*.pot
+
+# Jupyter / IPython
+.ipynb_checkpoints
+profile_default/
+ipython_config.py
+
+# Cython
+cython_debug/
