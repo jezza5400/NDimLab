@@ -1,0 +1,37 @@
+{
+	"settings": {
+		"column_major": false,
+		"z_order_draw": false,
+		"ticks_per_second": 60
+	},
+	"entities": [
+		{
+			"id": "entity-0",
+			"type": "points",
+			"color": "#38babf",
+			"dimensions": 2,
+			"point_count": 4,
+			"points": [
+				5,
+				5,
+				-5,
+				5,
+				-5,
+				-5,
+				5,
+				-5
+			],
+			"transformations": [
+				{
+					"type": "linear",
+					"values": [
+						"cos(1)",
+						"sin(1)",
+						"-sin(1)",
+						"cos(1)"
+					]
+				}
+			]
+		}
+	]
+}
