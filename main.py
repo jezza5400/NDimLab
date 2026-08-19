@@ -18,10 +18,12 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
 	QApplication,
 	QCheckBox,
+	QFileDialog,
 	QGraphicsScene,
 	QHBoxLayout,
 	QLabel,
 	QMainWindow,
+	QMessageBox,
 	QScrollArea,
 	QSpinBox,
 	QSplitter,
@@ -32,6 +34,7 @@ from PySide6.QtWidgets import (
 from lib import ZOOM_IN_FACTOR_KEY
 from lib.gl.opengl_widget import OpenGLWidget
 from lib.scene.entity import PointSet, Polygon, SceneEntity
+from lib.scene.serialization import DEFAULT_SAVE_PATH, load_scene, save_scene
 from lib.ui.debug_overlay import DebugOverlay
 from lib.ui.rows import EntityCreatePanel, EntityRow
 
@@ -133,6 +136,14 @@ class NDimLabWindow(QMainWindow):
 		self.gl_interval_timer.start(250)
 
 		# --- MenuBar Actions ---
+		save_action = QAction("&Save Scene...", self)
+		save_action.setShortcut("Ctrl+S")
+		save_action.triggered.connect(self.save_scene_clicked)
+
+		load_action = QAction("&Load Scene...", self)
+		load_action.setShortcut("Ctrl+O")
+		load_action.triggered.connect(self.load_scene_clicked)
+
 		pause_action = QAction("&Pause", self)
 		pause_action.setCheckable(True)
 		pause_action.setShortcut("P")
@@ -175,6 +186,9 @@ class NDimLabWindow(QMainWindow):
 		menu_bar_menu = menu_bar.addMenu("&Menu")
 		menu_bar_view = menu_bar.addMenu("&View")
 
+		menu_bar_menu.addAction(save_action)
+		menu_bar_menu.addAction(load_action)
+		menu_bar_menu.addSeparator()
 		menu_bar_menu.addAction(pause_action)
 		menu_bar_menu.addAction(self.physics_step_action)
 		menu_bar_menu.addAction(reset_trans_action)
@@ -212,6 +226,21 @@ class NDimLabWindow(QMainWindow):
 
 		self.opengl_widget.update()
 
+	def add_entity_row(self, entity: SceneEntity) -> EntityRow:
+		row = EntityRow(self, entity, on_removed=self._remove_entity_row)
+		row.rebuild_transformation_rows()
+		self.entity_rows.append(row)
+		self.entity_list_container.insertWidget(self.entity_list_container.count() - 1, row)
+		return row
+
+	def clear_scene(self) -> None:
+		for row in list(self.entity_rows):
+			self.entity_list_container.removeWidget(row)
+			row.deleteLater()
+		self.entity_rows.clear()
+		self.scene_entities.clear()
+		self.opengl_widget.update()
+
 	def _create_entity(self, kind: str, dim: int, count: int, color: QColor) -> None:
 		points = np.zeros((count, dim), dtype=np.float32)
 
@@ -225,10 +254,7 @@ class NDimLabWindow(QMainWindow):
 			entity.color = color
 
 		self.scene_entities.append(entity)
-
-		row = EntityRow(self, entity, on_removed=self._remove_entity_row)
-		self.entity_rows.append(row)
-		self.entity_list_container.insertWidget(self.entity_list_container.count() - 1, row)
+		self.add_entity_row(entity)
 		self.opengl_widget.update()
 
 	def _remove_entity_row(self, row: EntityRow) -> None:
@@ -276,6 +302,24 @@ class NDimLabWindow(QMainWindow):
 			entity.oneshot_applied = False
 			entity.update_graphics_item()
 		self.opengl_widget.update()
+
+	def save_scene_clicked(self) -> None:
+		path_str, _ = QFileDialog.getSaveFileName(self, "Save Scene", str(DEFAULT_SAVE_PATH), "JSON Files (*.json)")
+		if not path_str:
+			return
+		try:
+			save_scene(self, Path(path_str), minify=False)
+		except OSError as exc:
+			QMessageBox.critical(self, "Save Failed", str(exc))
+
+	def load_scene_clicked(self) -> None:
+		path_str, _ = QFileDialog.getOpenFileName(self, "Load Scene", str(DEFAULT_SAVE_PATH.parent), "JSON Files (*.json)")
+		if not path_str:
+			return
+		try:
+			load_scene(self, Path(path_str))
+		except (OSError, ValueError, KeyError) as exc:
+			QMessageBox.critical(self, "Load Failed", str(exc))
 
 	def tick(self) -> None:
 		elapsed = self.timer.nsecsElapsed() / 1e9

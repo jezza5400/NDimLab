@@ -1,25 +1,65 @@
 {
 	"settings": {
 		"column_major": false,
-		"z_order_draw": false,
+		"z_order_draw": true,
 		"ticks_per_second": 60
 	},
 	"entities": [
 		{
 			"id": "entity-0",
-			"type": "points",
+			"type": "polygon",
 			"color": "#38babf",
-			"dimensions": 2,
-			"point_count": 4,
+			"dimensions": 3,
+			"point_count": 16,
 			"points": [
-				5,
-				5,
-				-5,
-				5,
-				-5,
-				-5,
-				5,
-				-5
+				5.0,
+				5.0,
+				-5.0,
+				-5.0,
+				5.0,
+				-5.0,
+				-5.0,
+				-5.0,
+				-5.0,
+				5.0,
+				-5.0,
+				-5.0,
+				5.0,
+				5.0,
+				-5.0,
+				5.0,
+				5.0,
+				5.0,
+				-5.0,
+				5.0,
+				5.0,
+				-5.0,
+				5.0,
+				-5.0,
+				-5.0,
+				5.0,
+				5.0,
+				-5.0,
+				-5.0,
+				5.0,
+				-5.0,
+				-5.0,
+				-5.0,
+				-5.0,
+				-5.0,
+				5.0,
+				5.0,
+				-5.0,
+				5.0,
+				5.0,
+				-5.0,
+				-5.0,
+				5.0,
+				-5.0,
+				5.0,
+				5.0,
+				5.0,
+				5.0
 			],
 			"transformations": [
 				{
@@ -27,9 +67,51 @@
 					"values": [
 						"cos(1)",
 						"sin(1)",
+						"0",
+						"-sin(1)",
+						"cos(1)",
+						"0",
+						"0",
+						"0",
+						"1"
+					],
+					"continuous": true,
+					"enabled": true,
+					"name": "Linear 1"
+				},
+				{
+					"type": "linear",
+					"values": [
+						"cos(1)",
+						"0",
+						"sin(1)",
+						"0",
+						"1",
+						"0",
+						"-sin(1)",
+						"0",
+						"cos(1)"
+					],
+					"continuous": true,
+					"enabled": true,
+					"name": "Linear 2"
+				},
+				{
+					"type": "linear",
+					"values": [
+						"1",
+						"0",
+						"0",
+						"0",
+						"cos(1)",
+						"sin(1)",
+						"0",
 						"-sin(1)",
 						"cos(1)"
-					]
+					],
+					"continuous": true,
+					"enabled": true,
+					"name": "Linear 3"
 				}
 			]
 		}
