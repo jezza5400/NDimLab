@@ -3,6 +3,23 @@ from numpy.typing import NDArray
 
 
 def vec_to_homogeneous(arr: NDArray) -> NDArray:
+	"""
+	Convert a vector or batch of vectors into homogeneous transformation matrices.
+
+	Supports:
+	- Shape (n,) → returns a (n+1, n+1) homogeneous matrix
+	- Shape (m, n) → returns a batch of (m, n+1, n+1) homogeneous matrices
+
+	Args:
+		arr (NDArray): Input vector or batch of vectors.
+
+	Returns:
+		**homogeneous:** `NDArray`
+		A homogeneous matrix or batch of matrices embedding the input vector(s).
+
+	Raises:
+		ValueError: If the input array is not 1D or 2D.
+	"""
 	if arr.ndim == 1:
 		n = arr.shape[0]
 		h = np.eye(n + 1, dtype=arr.dtype)
@@ -25,6 +42,23 @@ def vec_to_homogeneous(arr: NDArray) -> NDArray:
 
 
 def linear_to_homogeneous(arr: NDArray) -> NDArray:
+	"""
+	Convert a linear matrix or batch of linear matrices into homogeneous form.
+
+	Supports:
+	- Shape (n, n) → returns a (n+1, n+1) homogeneous matrix
+	- Shape (m, n, n) → returns a batch of (m, n+1, n+1) homogeneous matrices
+
+	Args:
+		arr (NDArray): Square matrix or batch of square matrices.
+
+	Returns:
+		**homogeneous:** `NDArray`
+		A homogeneous matrix or batch of matrices embedding the linear transform(s).
+
+	Raises:
+		ValueError: If the input is not square or not 2D/3D.
+	"""
 	if arr.ndim == 2:
 		n = arr.shape[0]
 		hom = np.eye(n + 1, dtype=arr.dtype)

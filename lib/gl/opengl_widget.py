@@ -3,11 +3,7 @@ from typing import cast
 
 import moderngl as mgl
 import numpy as np
-from PySide6.QtCore import (
-	QElapsedTimer,
-	QPointF,
-	Qt,
-)
+from PySide6.QtCore import QElapsedTimer, QPointF, Qt
 from PySide6.QtGui import (
 	QCloseEvent,
 	QKeyEvent,
@@ -18,12 +14,34 @@ from PySide6.QtGui import (
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from PySide6.QtWidgets import QWidget
 
-from lib import BG_VERTS, GRID_FRAG_SHADER, GRID_VERT_SHADER, POLY_FRAG, POLY_VERT, TEXTURE_FRAG, TEXTURE_VERT, ZOOM_IN_FACTOR_KEY, ZOOM_IN_FACTOR_TRACKPAD, ZOOM_IN_FACTOR_WHEEL
+from lib import (
+	BG_VERTS,
+	GRID_FRAG_SHADER,
+	GRID_VERT_SHADER,
+	POLY_FRAG,
+	POLY_VERT,
+	TEXTURE_FRAG,
+	TEXTURE_VERT,
+	ZOOM_IN_FACTOR_KEY,
+	ZOOM_IN_FACTOR_TRACKPAD,
+	ZOOM_IN_FACTOR_WHEEL,
+)
 from lib.scene.entity import SceneEntity
 
 
 class OpenGLWidget(QOpenGLWidget):
 	def __init__(self, parent: QWidget | None = None) -> None:
+		"""
+		OpenGL rendering widget responsible for drawing the grid background,
+		polygons, and point sets using ModernGL.
+
+		Args:
+			parent (QWidget | None): Optional parent widget.
+
+		Returns:
+			**instance:** `OpenGLWidget`
+			A fully initialized OpenGL rendering widget.
+		"""
 		super().__init__(parent=parent)
 
 		self.zoom_level: float = 30
@@ -55,10 +73,6 @@ class OpenGLWidget(QOpenGLWidget):
 		self.poly_trans_ssbo: mgl.Buffer | None = None
 		self.poly_vao: mgl.VertexArray | None = None
 
-		# Populated by whatever owns this widget (e.g. NDimLabWindow shares its
-		# scene_entities list by reference so appends/removes stay in sync, and
-		# keeps z_order_enabled synced via a setter). OpenGLWidget never needs to
-		# know about its owner's type - keeps this class import-independent of it.
 		self.scene_entities: list[SceneEntity] = []
 		self.z_order_enabled: bool = False
 
@@ -66,13 +80,19 @@ class OpenGLWidget(QOpenGLWidget):
 		self.setMinimumSize(200, 200)
 
 	def initializeGL(self) -> None:
+		"""
+		Initialize the ModernGL context, compile shaders, and prepare buffers.
+		"""
 		self.makeCurrent()
 		self.ctx = mgl.create_context()
 		self.ctx.enable(mgl.PROGRAM_POINT_SIZE)
 
 		self.screen_fbo = self.ctx.detect_framebuffer(self.defaultFramebufferObject())
 
-		self.bg_prog = self.ctx.program(vertex_shader=GRID_VERT_SHADER, fragment_shader=GRID_FRAG_SHADER)
+		self.bg_prog = self.ctx.program(
+			vertex_shader=GRID_VERT_SHADER,
+			fragment_shader=GRID_FRAG_SHADER,
+		)
 		self.u_bg_resolution = cast(mgl.Uniform, self.bg_prog["u_resolution"])
 		self.u_bg_zoom = cast(mgl.Uniform, self.bg_prog["u_zoom"])
 		self.u_bg_camera_pos = cast(mgl.Uniform, self.bg_prog["u_camera_pos"])
@@ -80,15 +100,22 @@ class OpenGLWidget(QOpenGLWidget):
 		self.bg_vbo = self.ctx.buffer(BG_VERTS.tobytes())
 		self.bg_vao = self.ctx.vertex_array(self.bg_prog, [(self.bg_vbo, "2f", "inPosition")])
 
-		self.tex_prog = self.ctx.program(vertex_shader=TEXTURE_VERT, fragment_shader=TEXTURE_FRAG)
+		self.tex_prog = self.ctx.program(
+			vertex_shader=TEXTURE_VERT,
+			fragment_shader=TEXTURE_FRAG,
+		)
 		self.tex_vao = self.ctx.vertex_array(self.tex_prog, [(self.bg_vbo, "2f", "inPosition")])
 
-		self.poly_prog = self.ctx.program(vertex_shader=POLY_VERT, fragment_shader=POLY_FRAG)
+		self.poly_prog = self.ctx.program(
+			vertex_shader=POLY_VERT,
+			fragment_shader=POLY_FRAG,
+		)
 		self.poly_vao = self.ctx.vertex_array(self.poly_prog, [])
 		self.poly_ssbo = self.ctx.buffer(reserve=16)
 		self.poly_ssbo.bind_to_storage_buffer(binding=0)
 		self.poly_trans_ssbo = self.ctx.buffer(reserve=16)
 		self.poly_trans_ssbo.bind_to_storage_buffer(binding=1)
+
 		self.u_poly_dimension = cast(mgl.Uniform, self.poly_prog["u_dimension"])
 		self.u_poly_pointColor = cast(mgl.Uniform, self.poly_prog["u_pointColor"])
 		self.u_poly_camera_pos = cast(mgl.Uniform, self.poly_prog["u_camera_pos"])
@@ -99,6 +126,9 @@ class OpenGLWidget(QOpenGLWidget):
 			self.bake_grid()
 
 	def paintGL(self) -> None:
+		"""
+		Render the grid, polygons, and point sets each frame.
+		"""
 		if self.ctx is None:
 			return
 		assert self.bg_vao is not None
@@ -115,7 +145,6 @@ class OpenGLWidget(QOpenGLWidget):
 		ratio = self.devicePixelRatioF()
 		w, h = int(self.width() * ratio), int(self.height() * ratio)
 
-		# The grid is a flat full-screen quad behind everything - never depth-test it.
 		self.ctx.disable(mgl.DEPTH_TEST)
 		if self.is_panning or self.is_zooming or self.grid_texture is None:
 			self.u_bg_resolution.value = (w, h)
@@ -135,7 +164,10 @@ class OpenGLWidget(QOpenGLWidget):
 			self.ctx.enable(mgl.DEPTH_TEST)
 
 		for entity in self.scene_entities:
-			points_data = np.ascontiguousarray(entity.points[:, : entity.dimension], dtype=np.float32).tobytes()
+			points_data = np.ascontiguousarray(
+				entity.points[:, : entity.dimension],
+				dtype=np.float32,
+			).tobytes()
 
 			if self.poly_ssbo is None or self.poly_ssbo.size < len(points_data):
 				self.poly_ssbo = self.ctx.buffer(points_data)
@@ -161,6 +193,13 @@ class OpenGLWidget(QOpenGLWidget):
 		self.ctx.disable(mgl.DEPTH_TEST)
 
 	def resizeGL(self, w: int, h: int) -> None:
+		"""
+		Handle OpenGL viewport resizing and rebake the grid texture.
+
+		Args:
+			w (int): New widget width in logical pixels.
+			h (int): New widget height in logical pixels.
+		"""
 		if self.ctx is None:
 			return
 
@@ -174,6 +213,12 @@ class OpenGLWidget(QOpenGLWidget):
 		self.bake_grid(phys_w, phys_h)
 
 	def resizeEvent(self, e: QResizeEvent) -> None:
+		"""
+		Qt resize event handler. Updates overlay elements if present.
+
+		Args:
+			e (QResizeEvent): The Qt resize event.
+		"""
 		super().resizeEvent(e)
 
 		main_window = self.window()
@@ -185,6 +230,12 @@ class OpenGLWidget(QOpenGLWidget):
 			update_func()
 
 	def closeEvent(self, event: QCloseEvent) -> None:
+		"""
+		Handle widget close event and release OpenGL resources.
+
+		Args:
+			event (QCloseEvent): The Qt close event.
+		"""
 		if self.grid_texture is not None:
 			self.grid_texture.release()
 			self.grid_texture = None
@@ -193,7 +244,15 @@ class OpenGLWidget(QOpenGLWidget):
 		super().closeEvent(event)
 
 	def zoom(self, multiplier: float | None = None, reset_zoom: bool = True, reset_camera_pos: bool = False, bake: bool = True) -> None:
-		"""When bake is True grid will be baked and paintGL will be called"""
+		"""
+		Adjust the zoom level and optionally reset camera position.
+
+		Args:
+			multiplier (float | None): Zoom multiplier to apply.
+			reset_zoom (bool): Whether to reset zoom to the original level.
+			reset_camera_pos (bool): Whether to reset camera position to (0, 0).
+			bake (bool): Whether to rebake the grid and trigger repaint.
+		"""
 		if reset_zoom:
 			self.zoom_level = self.OG_ZOOM
 		if multiplier:
@@ -205,6 +264,12 @@ class OpenGLWidget(QOpenGLWidget):
 			self.update()
 
 	def keyPressEvent(self, event: QKeyEvent) -> None:
+		"""
+		Handle keyboard input for zooming and camera movement.
+
+		Args:
+			event (QKeyEvent): The Qt key press event.
+		"""
 		moved = False
 		is_zoom_key = False
 
@@ -234,6 +299,12 @@ class OpenGLWidget(QOpenGLWidget):
 		super().keyPressEvent(event)
 
 	def keyReleaseEvent(self, event: QKeyEvent) -> None:
+		"""
+		Handle key release events and finalize zoom operations.
+
+		Args:
+			event (QKeyEvent): The Qt key release event.
+		"""
 		self.pressed_keys.discard(event.key())
 		if self.is_zooming and not (Qt.Key.Key_Minus in self.pressed_keys or Qt.Key.Key_Plus in self.pressed_keys or Qt.Key.Key_Equal in self.pressed_keys):
 			self.is_zooming = False
@@ -243,11 +314,23 @@ class OpenGLWidget(QOpenGLWidget):
 		super().keyReleaseEvent(event)
 
 	def mousePressEvent(self, event: QMouseEvent) -> None:
+		"""
+		Store the initial mouse position for panning.
+
+		Args:
+			event (QMouseEvent): The Qt mouse press event.
+		"""
 		self.mouse_pos = event.position()
 
 		super().mousePressEvent(event)
 
 	def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+		"""
+		Handle mouse release and finalize panning operations.
+
+		Args:
+			event (QMouseEvent): The Qt mouse release event.
+		"""
 		if event.button() == Qt.MouseButton.LeftButton and self.is_panning:
 			self.is_panning = False
 			self.bake_grid()
@@ -256,6 +339,12 @@ class OpenGLWidget(QOpenGLWidget):
 		super().mouseReleaseEvent(event)
 
 	def wheelEvent(self, event: QWheelEvent) -> None:
+		"""
+		Handle mouse wheel or trackpad zoom gestures.
+
+		Args:
+			event (QWheelEvent): The Qt wheel event.
+		"""
 		pixel = event.pixelDelta()
 		angle = event.angleDelta()
 
@@ -276,20 +365,39 @@ class OpenGLWidget(QOpenGLWidget):
 		event.accept()
 
 	def mouseMoveEvent(self, event: QMouseEvent) -> None:
+		"""
+		Handle mouse movement for camera panning.
+
+		Args:
+			event (QMouseEvent): The Qt mouse move event.
+		"""
 		if self.mouse_pos is None:
 			return
 
 		if event.buttons() == Qt.MouseButton.LeftButton:
 			self.is_panning = True
-			mouse_mov = [event.position().x() - self.mouse_pos.x(), event.position().y() - self.mouse_pos.y()]
+			mouse_mov = [
+				event.position().x() - self.mouse_pos.x(),
+				event.position().y() - self.mouse_pos.y(),
+			]
 			mouse_mov = [x / self.zoom_level / self.devicePixelRatioF() for x in mouse_mov]
 			self.mouse_pos = event.position()
-			self.camera_pos = (self.camera_pos[0] - mouse_mov[0], self.camera_pos[1] + mouse_mov[1])
+			self.camera_pos = (
+				self.camera_pos[0] - mouse_mov[0],
+				self.camera_pos[1] + mouse_mov[1],
+			)
 			self.update()
 
 		super().mouseMoveEvent(event)
 
 	def bake_grid(self, w: int | None = None, h: int | None = None) -> None:
+		"""
+		Render the background grid into a texture for reuse.
+
+		Args:
+			w (int | None): Optional physical width override.
+			h (int | None): Optional physical height override.
+		"""
 		if self.ctx is None:
 			print("Cannot bake grid when context is None, Returning.", file=sys.stderr)
 			return
@@ -319,8 +427,17 @@ class OpenGLWidget(QOpenGLWidget):
 		self.bg_vao.render(mgl.TRIANGLES)
 
 	def fixed_update(self) -> None:
+		"""
+		Trigger a repaint during fixed-timestep updates.
+		"""
 		self.update()
 
 	def time_since_last_paint(self) -> int:
-		"""Milliseconds elapsed since paintGL() last ran."""
+		"""
+		Return the number of milliseconds since paintGL() last executed.
+
+		Returns:
+			**elapsed_ms:** `int`
+			Milliseconds elapsed since the previous paintGL call.
+		"""
 		return self._paint_clock.elapsed()

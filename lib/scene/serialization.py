@@ -15,12 +15,34 @@ DEFAULT_SAVE_PATH = Path(__file__).parent.parent.parent / "save_data.json"
 
 
 def _kind_label(t: Transformation) -> str:
+	"""
+	Determine a human-readable label describing the type of a transformation.
+
+	Args:
+		t (Transformation): The transformation whose type should be labeled.
+
+	Returns:
+		**label:** `str`
+		A string describing the transformation type:
+		`"homogeneous"`, `"linear"`, or `"translation"`.
+	"""
 	if t.homogeneous:
 		return "homogeneous"
 	return "linear" if t.linear else "translation"
 
 
 def _transformation_to_dict(t: Transformation) -> dict:
+	"""
+	Convert a Transformation object into a serializable dictionary.
+
+	Args:
+		t (Transformation): The transformation to convert.
+
+	Returns:
+		**data:** `dict`
+		A dictionary containing type, matrix values, flags, and metadata
+		describing the transformation.
+	"""
 	if t.matrix_text is not None:
 		values = [str(v) for v in np.asarray(t.matrix_text).flatten().tolist()]
 	else:
@@ -36,6 +58,18 @@ def _transformation_to_dict(t: Transformation) -> dict:
 
 
 def _entity_to_dict(entity: SceneEntity, entity_id: str) -> dict:
+	"""
+	Convert a SceneEntity (PointSet or Polygon) into a serializable dictionary.
+
+	Args:
+		entity (SceneEntity): The entity to convert.
+		entity_id (str): A unique identifier assigned to the entity.
+
+	Returns:
+		**data:** `dict`
+		A dictionary containing geometry, color, transformations, and metadata
+		describing the entity.
+	"""
 	dim = entity.dimension
 	points = entity.original_points[:, :dim]
 
@@ -51,6 +85,16 @@ def _entity_to_dict(entity: SceneEntity, entity_id: str) -> dict:
 
 
 def scene_to_dict(window: NDimLabWindow) -> dict:
+	"""
+	Convert the entire application scene into a serializable dictionary.
+
+	Args:
+		window (NDimLabWindow): The main application window containing scene data.
+
+	Returns:
+		**scene:** `dict`
+		A dictionary containing settings and all serialized scene entities.
+	"""
 	return {
 		"settings": {
 			"column_major": window.column_major_global,
@@ -62,6 +106,14 @@ def scene_to_dict(window: NDimLabWindow) -> dict:
 
 
 def save_scene(window: NDimLabWindow, path: Path = DEFAULT_SAVE_PATH, minify: bool = True) -> None:
+	"""
+	Save the current scene to a JSON file.
+
+	Args:
+		window (NDimLabWindow): The main application window containing the scene.
+		path (Path): The file path where the scene should be saved.
+		minify (bool): Whether to write compact JSON without indentation.
+	"""
 	data = scene_to_dict(window)
 	with open(path, "w", encoding="utf-8") as file:
 		if minify:
@@ -79,6 +131,22 @@ def _build_transformation(
 	enabled: bool,
 	name: str,
 ) -> Transformation:
+	"""
+	Construct a Transformation object from serialized transformation data.
+
+	Args:
+		kind (str): The transformation type ("homogeneous", "linear", "translation").
+		values (list[str]): Matrix or vector values as strings.
+		dim (int): Dimensionality of the associated entity.
+		column_major (bool): Whether the transformation uses column-major layout.
+		continuous (bool): Whether the transformation updates continuously.
+		enabled (bool): Whether the transformation is active.
+		name (str): A user-visible name for the transformation.
+
+	Returns:
+		**transform:** `Transformation`
+		A fully constructed transformation object ready to attach to an entity.
+	"""
 	if kind == "homogeneous":
 		size = dim + 1
 		rows, cols = size, size
@@ -116,6 +184,13 @@ def _build_transformation(
 
 
 def load_scene(window: NDimLabWindow, path: Path = DEFAULT_SAVE_PATH) -> None:
+	"""
+	Load a scene from a JSON file and populate the application window with entities.
+
+	Args:
+		window (NDimLabWindow): The main application window to populate.
+		path (Path): The file path from which the scene should be loaded.
+	"""
 	with open(path, encoding="utf-8") as file:
 		data = json.load(file)
 

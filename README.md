@@ -8,6 +8,14 @@ NDimLab is a Python library for working with and visualizing n-dimensional matri
 
 PySide6 inside a Python virtual environment uses its own plugin directory, which does not include system Qt theme plugins (like `qt6ct`). Because of this, Qt cannot detect the system’s dark mode and falls back to the **Fusion light theme**. So manually point Qt to the system plugin paths by adding these lines to the bottom venv `bin/activate` script:
 
+New:
+
+```bash
+export QT_QPA_PLATFORMTHEME=gtk3
+```
+
+Old:
+
 ```bash
 export QT_PLUGIN_PATH=/usr/lib/qt6/plugins
 export QT_QPA_PLATFORMTHEME=qt6ct

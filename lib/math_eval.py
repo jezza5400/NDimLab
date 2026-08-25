@@ -6,6 +6,18 @@ from typing import ClassVar
 
 
 class Evaluator:
+	"""
+	Safe mathematical expression evaluator using Python's AST module.
+
+	Supports:
+	- Basic arithmetic (+, -, *, /)
+	- Unary operators (+x, -x)
+	- Trigonometric functions (sin, cos, tan, asin, acos, atan) in degrees
+	- Common math functions (sqrt, abs, exp, log)
+
+	Expressions are parsed using `ast.parse` to prevent unsafe execution.
+	"""
+
 	BINARY_OPERATORS: ClassVar[dict[type[ast.operator], Callable[[float, float], float]]] = {
 		ast.Add: operator.add,
 		ast.Sub: operator.sub,
@@ -34,7 +46,22 @@ class Evaluator:
 
 	@classmethod
 	def evaluate_expression(cls, expr: str) -> float:
-		"""Evaluates a math string safely adhering to BODMAS rules."""
+		"""
+		Evaluate a mathematical expression string safely using AST parsing.
+
+		Supports arithmetic, unary operators, and functions defined in
+		`Evaluator.FUNCTIONS`. Trigonometric functions operate in degrees.
+
+		Args:
+			expr (str): The expression to evaluate. Empty strings return 0.0.
+
+		Returns:
+			**result:** `float`
+			The evaluated numeric result of the expression.
+
+		Raises:
+			ValueError: If the expression contains invalid or unsupported syntax.
+		"""
 		if not expr:
 			return 0.0
 
@@ -48,6 +75,19 @@ class Evaluator:
 
 	@classmethod
 	def _eval_node(cls, node: ast.AST) -> float:
+		"""
+		Recursively evaluate an AST node representing part of a math expression.
+
+		Args:
+			node (ast.AST): The AST node to evaluate.
+
+		Returns:
+			**value:** `float`
+			The numeric result of evaluating the node.
+
+		Raises:
+			ValueError: If the node represents an unsupported operation.
+		"""
 		if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
 			return float(node.value)
 

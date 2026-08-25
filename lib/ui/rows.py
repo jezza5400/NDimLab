@@ -40,6 +40,17 @@ class TransformationRow(QFrame):
 		on_move: Callable[[TransformationRow, int], None],
 		parent: QWidget | None = None,
 	) -> None:
+		"""
+		UI row representing a single transformation applied to a SceneEntity.
+
+		Args:
+			entity (SceneEntity): The entity this transformation belongs to.
+			transformation (Transformation): The transformation being edited.
+			on_removed (Callable[[TransformationRow], None]): Callback when row is removed.
+			on_changed (Callable[[], None]): Callback when transformation changes.
+			on_move (Callable[[TransformationRow, int], None]): Callback to reorder rows.
+			parent (QWidget | None): Optional parent widget.
+		"""
 		super().__init__(parent)
 		self.entity = entity
 		self.transformation = transformation
@@ -103,6 +114,12 @@ class TransformationRow(QFrame):
 		layout.addWidget(self.matrix_widget)
 
 	def _matrix_changed(self, data: NDArray) -> None:
+		"""
+		Handle updates from the matrix editor and apply them to the transformation.
+
+		Args:
+			data (NDArray): The updated matrix data from the editor.
+		"""
 		text_grid = np.array(self.matrix_widget.get_matrix_text(), dtype=object)
 		if self.transformation.homogeneous or self.transformation.linear:
 			matrix = data
@@ -113,10 +130,19 @@ class TransformationRow(QFrame):
 		self.on_changed()
 
 	def _continuous_toggled(self, checked: bool) -> None:
+		"""
+		Toggle whether the transformation is applied continuously.
+
+		Args:
+			checked (bool): New continuous state.
+		"""
 		self.entity.set_transformation_continuous(self.transformation, checked)
 		self.on_changed()
 
 	def _remove_clicked(self) -> None:
+		"""
+		Remove this transformation from the entity and notify the parent UI.
+		"""
 		self.entity.remove_transformation(self.transformation)
 		self.on_removed(self)
 
@@ -125,6 +151,19 @@ class EntityRow(QFrame):
 	"""UI card for one SceneEntity: points editor + transformations list."""
 
 	def __init__(self, window: NDimLabWindow, entity: SceneEntity, on_removed: Callable[[EntityRow], None], parent: QWidget | None = None) -> None:
+		"""
+		UI card representing a SceneEntity. Contains:
+
+		Args:
+			window (NDimLabWindow): Reference to the main application window.
+			entity (SceneEntity): The entity represented by this row.
+			on_removed (Callable[[EntityRow], None]): Callback when the entity is removed.
+			parent (QWidget | None): Optional parent widget.
+
+		Returns:
+			**instance:** `EntityRow`
+			A UI card for editing a SceneEntity.
+		"""
 		super().__init__(parent)
 		self.window_ref = window
 		self.entity = entity
@@ -205,7 +244,13 @@ class EntityRow(QFrame):
 		outer.addWidget(self.body)
 
 	def _make_points_widget(self) -> LiveMatrixWidget:
-		"""Builds Points editor using global column-major setting so points are entered row-wise or column-wise without affecting geometry."""
+		"""
+		Build the points editor widget, respecting global column-major settings.
+
+		Returns:
+			**widget:** `LiveMatrixWidget`
+			A matrix editor for the entity's point data.
+		"""
 		dim = self.entity.dimension
 		count = self.entity.points.shape[0]
 		values = self.entity.original_points[:, :dim]
@@ -220,7 +265,9 @@ class EntityRow(QFrame):
 		return widget
 
 	def rebuild_points_widget(self) -> None:
-		"""Recreates the Points editor with the shape matching the current column-major setting."""
+		"""
+		Recreate the points editor to match the current column-major configuration.
+		"""
 		old_widget = self.points_widget
 		self.points_row_layout.removeWidget(old_widget)
 		old_widget.deleteLater()
@@ -229,25 +276,53 @@ class EntityRow(QFrame):
 		self.points_row_layout.addWidget(self.points_widget)
 
 	def _title_text(self) -> str:
+		"""
+		Build the title text describing the entity (type, dimension, point count).
+
+		Returns:
+			**title:** `str`
+			A formatted title string for the entity row.
+		"""
 		kind = "Polygon" if self.entity.is_polygon else "Points"
 		return f"{kind} ({self.entity.dimension}D, {self.entity.points.shape[0]} pts)"
 
 	def _kind_toggled(self, checked: bool) -> None:
+		"""
+		Toggle whether the entity is treated as a polygon or a point set.
+
+		Args:
+			checked (bool): New polygon state.
+		"""
 		self.entity.set_is_polygon(checked)
 		self.kind_button.setText("Polygon" if checked else "Points")
 		self.title_label.setText(self._title_text())
 		self._repaint()
 
 	def _toggle_expanded(self) -> None:
+		"""
+		Expand or collapse the entity row body.
+		"""
 		visible = not self.body.isVisible()
 		self.body.setVisible(visible)
 		self.expand_button.setText("▼" if visible else "▶")
 
 	def _color_changed(self, color: QColor) -> None:
+		"""
+		Update the entity's color and repaint the OpenGL widget.
+
+		Args:
+			color (QColor): The newly selected color.
+		"""
 		self.entity.color = color
 		self._repaint()
 
 	def _points_changed(self, data: NDArray) -> None:
+		"""
+		Update the entity's point data based on the matrix editor contents.
+
+		Args:
+			data (NDArray): Updated point matrix.
+		"""
 		cols = self.entity.dimension
 		points_data = data.T if self.window_ref.column_major_global else data
 		self.entity.original_points[:, :cols] = points_data
@@ -255,6 +330,9 @@ class EntityRow(QFrame):
 		self._apply_and_repaint()
 
 	def _add_transformation(self) -> None:
+		"""
+		Create a new transformation of the selected type and add it to the entity.
+		"""
 		dim = self.entity.dimension
 		kind = self.trans_kind_combo.currentText()
 		col_major = self.window_ref.column_major_global
@@ -284,12 +362,25 @@ class EntityRow(QFrame):
 		self._apply_and_repaint()
 
 	def _remove_transformation_row(self, row: TransformationRow) -> None:
+		"""
+		Remove a transformation row from the UI and entity.
+
+		Args:
+			row (TransformationRow): The row to remove.
+		"""
 		self.transformation_rows.remove(row)
 		self.transformations_container.removeWidget(row)
 		row.deleteLater()
 		self._apply_and_repaint()
 
 	def _move_transformation_row(self, row: TransformationRow, delta: int) -> None:
+		"""
+		Move a transformation row up or down in the list.
+
+		Args:
+			row (TransformationRow): The row to move.
+			delta (int): +1 to move down, -1 to move up.
+		"""
 		idx = self.transformation_rows.index(row)
 		new_idx = idx + delta
 		if not (0 <= new_idx < len(self.transformation_rows)):
@@ -301,6 +392,9 @@ class EntityRow(QFrame):
 		self._apply_and_repaint()
 
 	def rebuild_transformation_rows(self) -> None:
+		"""
+		Rebuild all transformation rows from the entity's transformation list.
+		"""
 		for row in self.transformation_rows:
 			self.transformations_container.removeWidget(row)
 			row.deleteLater()
@@ -312,12 +406,21 @@ class EntityRow(QFrame):
 			self.transformations_container.addWidget(row)
 
 	def _apply_and_repaint(self) -> None:
+		"""
+		Apply pending changes and repaint the OpenGL widget.
+		"""
 		self._repaint()
 
 	def _repaint(self) -> None:
+		"""
+		Request an OpenGL redraw from the main window.
+		"""
 		self.window_ref.opengl_widget.update()
 
 	def _remove_clicked(self) -> None:
+		"""
+		Remove this entity from the scene and notify the parent UI.
+		"""
 		if self.entity in self.window_ref.scene_entities:
 			self.window_ref.scene_entities.remove(self.entity)
 		self._repaint()
@@ -328,6 +431,17 @@ class EntityCreatePanel(QFrame):
 	"""Collapsible '+ New Entity' form for creating scene entities."""
 
 	def __init__(self, on_create: Callable[[str, int, int, QColor], None], parent: QWidget | None = None) -> None:
+		"""
+		Collapsible panel for creating new scene entities. Provides fields for:
+
+		Args:
+			on_create (Callable[[str, int, int, QColor], None]): Callback invoked when the user submits the form.
+			parent (QWidget | None): Optional parent widget.
+
+		Returns:
+			**instance:** `EntityCreatePanel`
+			A UI panel for creating new SceneEntity objects.
+		"""
 		super().__init__(parent)
 		self.on_create = on_create
 		self.setFrameShape(QFrame.Shape.StyledPanel)
@@ -372,9 +486,15 @@ class EntityCreatePanel(QFrame):
 		self.form.setVisible(False)
 
 	def _toggle_form(self) -> None:
+		"""
+		Expand or collapse the creation form.
+		"""
 		self.form.setVisible(not self.form.isVisible())
 
 	def _create_clicked(self) -> None:
+		"""
+		Collect form values and invoke the on_create callback to create a new entity.
+		"""
 		kind = self.type_combo.currentText()
 		dim = self.dimension_spin.value()
 		count = self.count_spin.value()

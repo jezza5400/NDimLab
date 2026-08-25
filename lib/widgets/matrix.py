@@ -3,22 +3,28 @@ from collections.abc import Callable
 import numpy as np
 from numpy.typing import NDArray
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QKeyEvent, QPainter, QPen
+from PySide6.QtGui import QKeyEvent, QPainter, QPaintEvent, QPen
 from PySide6.QtWidgets import QGridLayout, QLineEdit, QWidget
 
 from lib.math_eval import Evaluator
 
 
 class MatrixLineEdit(QLineEdit):
-	"""Custom QLineEdit that catches symbols like '*' and converts them to math ones like '·',
-	and dynamically outlines red on invalid mathematical input.
-	"""
-
 	VALID_CHARACTERS = frozenset({"+", "-", "*", "/", ".", "(", ")"})
 
 	has_error_changed = Signal(bool)
 
-	def __init__(self, parent=None) -> None:
+	def __init__(self, parent: QWidget | None = None) -> None:
+		"""
+		Initialize a MatrixLineEdit widget.
+
+		This custom QLineEdit normalizes certain symbols (e.g., '*' → '·'),
+		validates mathematical expressions using the Evaluator, and visually
+		indicates errors by applying a red outline.
+
+		Args:
+			parent (QWidget | None): Optional parent widget.
+		"""
 		super().__init__(parent)
 		self._has_error: bool = False
 
@@ -27,6 +33,13 @@ class MatrixLineEdit(QLineEdit):
 		self.textChanged.connect(self.validate_current_text)
 
 	def base_style(self) -> str:
+		"""
+		Build and return the base stylesheet used for normal and error states.
+
+		Returns:
+			**css:** `str`
+			A Qt stylesheet string defining normal, error, and focus styles.
+		"""
 		pal = self.palette()
 		base = pal.color(pal.currentColorGroup(), pal.ColorRole.Base).name()
 		text = pal.color(pal.currentColorGroup(), pal.ColorRole.Text).name()
@@ -52,6 +65,12 @@ class MatrixLineEdit(QLineEdit):
 		"""
 
 	def set_has_error(self, value: bool) -> None:
+		"""
+		Update the internal error state, refresh styling, and emit a change signal.
+
+		Args:
+			value (bool): Whether the current text is considered invalid.
+		"""
 		"""Updates the error state, forces a layout paint cycle, and emits a signal."""
 		if self._has_error != value:
 			self._has_error = value
@@ -64,7 +83,17 @@ class MatrixLineEdit(QLineEdit):
 			self.has_error_changed.emit(value)
 
 	def validate_current_text(self, text: str) -> None:
-		"""Runs input through the evaluator to update the error state."""
+		"""
+		Validate the current text using the Evaluator.
+		Empty text clears the error state.
+
+		Args:
+			text (str): The raw text from the line edit.
+
+		Returns:
+			**result:** `None`
+			No return value; updates error state based on expression validity.
+		"""
 		if not text.strip():
 			self.set_has_error(False)
 			return
@@ -76,6 +105,13 @@ class MatrixLineEdit(QLineEdit):
 			self.set_has_error(True)
 
 	def keyPressEvent(self, arg__1: QKeyEvent) -> None:
+		"""
+		Handle key presses, allowing navigation keys, converting '*' to '·',
+		and filtering allowed characters.
+
+		Args:
+			arg__1 (QKeyEvent): The incoming key event.
+		"""
 		key = arg__1.key()
 		text = arg__1.text()
 
@@ -106,8 +142,21 @@ class MatrixLineEdit(QLineEdit):
 
 
 class MatrixWidget(QWidget):
-	def __init__(self, rows=3, cols=None, parent=None):
-		"""If cols=None, cols will be set to rows"""
+	def __init__(self, rows: int = 3, cols: int | None = None, parent: QWidget | None = None):
+		"""
+		A grid-based matrix input widget composed of MatrixLineEdit cells.
+		Supports arbitrary row/column sizes and provides methods to extract
+		numeric or raw text matrix data.
+
+		Args:
+			rows (int): Number of matrix rows.
+			cols (int | None): Number of columns; defaults to rows if None.
+			parent (QWidget | None): Optional parent widget.
+
+		Returns:
+			**instance:** `MatrixWidget`
+			A fully constructed matrix input widget.
+		"""
 		super().__init__(parent)
 		self.rows = rows
 		self.cols = rows if cols is None else cols
@@ -139,7 +188,13 @@ class MatrixWidget(QWidget):
 				row_cells.append(cell)
 			self.cells.append(row_cells)
 
-	def paintEvent(self, event):
+	def paintEvent(self, event: QPaintEvent) -> None:
+		"""
+		Paint decorative matrix brackets around the widget using QPainter.
+
+		Args:
+			event (QPaintEvent): The paint event.
+		"""
 		super().paintEvent(event)
 		painter = QPainter(self)
 		painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -163,9 +218,17 @@ class MatrixWidget(QWidget):
 		painter.drawLine(w - offset, h - offset, w - offset - bracket_depth, h - offset)
 
 	def get_matrix_data(self, default_val: float = 0.0) -> NDArray:
-		"""Extracts matrix contents into float32 NumPy array.
+		"""
+		Extract matrix contents into a float32 NumPy array.
 
-		If a cell is empty or contains an invalid string, it falls back to `default_val`.
+		Empty or invalid cells fall back to `default_val`.
+
+		Args:
+			default_val (float): Value used when a cell cannot be evaluated.
+
+		Returns:
+			**matrix:** `NDArray`
+			A NumPy array of shape (rows, cols) containing evaluated float values.
 		"""
 		data = []
 		for row in self.cells:
@@ -181,7 +244,13 @@ class MatrixWidget(QWidget):
 		return np.array(data, dtype=np.float32)
 
 	def get_matrix_text(self) -> list[list[str]]:
-		"""Raw, unevaluated cell text (e.g. 'sin(90)'), same shape as get_matrix_data()."""
+		"""
+		Return raw, unevaluated text from each matrix cell.
+
+		Returns:
+			**text_grid:** `list[list[str]]`
+			A nested list of strings matching the matrix shape.
+		"""
 		return [[cell.text() for cell in row] for row in self.cells]
 
 
@@ -189,6 +258,21 @@ class LiveMatrixWidget(MatrixWidget):
 	"""MatrixWidget that reports its numeric contents on every edit via on_change."""
 
 	def __init__(self, rows: int, cols: int, on_change: Callable[[NDArray], None] | None = None, parent: QWidget | None = None) -> None:
+		"""
+		A MatrixWidget that emits its evaluated numeric matrix contents whenever
+		any cell finishes editing. Useful for live-updating transformations or
+		linked UI components.
+
+		Args:
+			rows (int): Number of matrix rows.
+			cols (int): Number of matrix columns.
+			on_change (Callable[[NDArray], None] | None): Callback invoked with the evaluated matrix whenever a cell changes.
+			parent (QWidget | None): Optional parent widget.
+
+		Returns:
+			**instance:** `LiveMatrixWidget`
+			A matrix widget with automatic change notifications.
+		"""
 		super().__init__(rows, cols, parent)
 		self.on_change = on_change
 		for row in self.cells:
@@ -196,11 +280,19 @@ class LiveMatrixWidget(MatrixWidget):
 				cell.editingFinished.connect(self._emit_change)
 
 	def _emit_change(self) -> None:
+		"""
+		Emit the on_change callback with the current evaluated matrix data.
+		"""
 		if self.on_change:
 			self.on_change(self.get_matrix_data())
 
 	def set_values(self, data: NDArray) -> None:
-		"""Populate cells from an (rows, cols) array without triggering on_change."""
+		"""
+		Populate matrix cells from a numeric array without triggering on_change.
+
+		Args:
+			data (NDArray): A (rows, cols) array of numeric values.
+		"""
 		for r, row in enumerate(self.cells):
 			for c, cell in enumerate(row):
 				cell.blockSignals(True)
@@ -208,7 +300,13 @@ class LiveMatrixWidget(MatrixWidget):
 				cell.blockSignals(False)
 
 	def set_text_values(self, text_grid) -> None:
-		"""Populate cells from (rows, cols) grid of raw strings to redisplay a transformation's original expressions instead of their evaluated value."""
+		"""
+		Populate matrix cells from a raw text grid, preserving original expressions
+		instead of evaluated values.
+
+		Args:
+			text_grid (list[list[str]]): A grid of raw string expressions.
+		"""
 		for r, row in enumerate(self.cells):
 			for c, cell in enumerate(row):
 				cell.blockSignals(True)

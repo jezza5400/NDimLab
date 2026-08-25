@@ -1,10 +1,18 @@
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QPainter
+from PySide6.QtGui import QColor, QPainter, QPaintEvent
 from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
 
 class DebugOverlay(QWidget):
-	def __init__(self, parent=None) -> None:
+	def __init__(self, parent: QWidget | None = None) -> None:
+		"""
+		A lightweight translucent overlay widget that displays real-time debug
+		metrics such as tick duration and OpenGL frame timing. It is drawn above
+		the main OpenGL widget and ignores mouse events.
+
+		Args:
+			parent (QWidget | None): Optional parent widget.
+		"""
 		super().__init__(parent)
 
 		self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
@@ -26,7 +34,13 @@ class DebugOverlay(QWidget):
 
 		self.setFixedSize(170, 50)
 
-	def paintEvent(self, event) -> None:
+	def paintEvent(self, event: QPaintEvent) -> None:
+		"""
+		Paint a translucent rounded background behind the debug text labels.
+
+		Args:
+			event (QPaintEvent): The paint event.
+		"""
 		painter = QPainter(self)
 		painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 		painter.setPen(Qt.PenStyle.NoPen)
@@ -34,8 +48,20 @@ class DebugOverlay(QWidget):
 		painter.drawRoundedRect(self.rect(), 4, 4)
 		super().paintEvent(event)
 
-	def update_metrics(self, text) -> None:
+	def update_metrics(self, text: str) -> None:
+		"""
+		Update the tick-duration label with new diagnostic text.
+
+		Args:
+			text (str): The text to display for tick duration.
+		"""
 		self.tick_duration.setText(text)
 
-	def update_gl_metrics(self, text) -> None:
+	def update_gl_metrics(self, text: str) -> None:
+		"""
+		Update the OpenGL frame-interval label with new diagnostic text.
+
+		Args:
+			text (str): The text to display for GL frame timing.
+		"""
 		self.gl_paint_interval.setText(text)

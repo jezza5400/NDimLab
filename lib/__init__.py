@@ -5,6 +5,16 @@ from PySide6.QtGui import QColor
 
 
 def load_shader(path: Path) -> str:
+	"""
+	Load a shader file from disk and return its text contents.
+
+	Args:
+		path (Path): Filesystem path to the shader file.
+
+	Returns:
+		**shader_source:** `str`
+		The UTF-8 decoded shader source code.
+	"""
 	return Path(path).read_text(encoding="utf-8")
 
 

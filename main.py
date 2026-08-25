@@ -42,7 +42,20 @@ ICON_PATH = Path(__file__).parent / "icons" / "app_icon.svg"
 
 
 class NDimLabWindow(QMainWindow):
+	"""
+	Main application window for NDimLab, responsible for managing the UI layout,
+	scene entities, OpenGL rendering widget, debug overlay, simulation timing,
+	and user interaction.
+	"""
+
 	def __init__(self, begin_paused: bool = False) -> None:
+		"""
+		Initialize the main NDimLab window, including UI layout, OpenGL widget,
+		sidebar controls, timers, and menu actions.
+
+		Args:
+			begin_paused (bool): Whether the simulation should start in a paused state.
+		"""
 		super().__init__()
 		self.setWindowTitle("NDimLab")
 		self.setWindowIcon(QIcon(str(ICON_PATH)))
@@ -203,18 +216,44 @@ class NDimLabWindow(QMainWindow):
 			self.tick_timer.stop()
 
 	def _tick_interval_ms(self) -> int:
+		"""
+		Compute the tick interval in milliseconds based on the current tick rate.
+
+		Returns:
+			**interval_ms:** `int`
+			Milliseconds between simulation ticks.
+		"""
 		return max(1, int(1000 / self.ticks_per_second))
 
 	def _set_tick_rate(self, value: int) -> None:
+		"""
+		Update the simulation tick rate and adjust the tick timer interval.
+
+		Args:
+			value (int): New ticks-per-second value.
+		"""
 		self.ticks_per_second = value
 		self.tick_timer.setInterval(self._tick_interval_ms())
 
 	def _set_z_order_enabled(self, checked: bool) -> None:
+		"""
+		Enable or disable Z-order rendering in the OpenGL widget.
+
+		Args:
+			checked (bool): Whether Z-order rendering is enabled.
+		"""
 		self.z_order_enabled = checked
 		self.opengl_widget.z_order_enabled = checked
 		self.opengl_widget.update()
 
 	def _set_column_major_global(self, checked: bool) -> None:
+		"""
+		Toggle column-major input mode globally and update all scene entities and
+		their corresponding UI rows.
+
+		Args:
+			checked (bool): Whether column-major mode is enabled.
+		"""
 		self.column_major_global = checked
 
 		for entity in self.scene_entities:
@@ -227,6 +266,16 @@ class NDimLabWindow(QMainWindow):
 		self.opengl_widget.update()
 
 	def add_entity_row(self, entity: SceneEntity) -> EntityRow:
+		"""
+		Create and insert a new EntityRow widget for the given scene entity.
+
+		Args:
+			entity (SceneEntity): The entity to represent in the sidebar.
+
+		Returns:
+			**row:** `EntityRow`
+			The created UI row representing the entity.
+		"""
 		row = EntityRow(self, entity, on_removed=self._remove_entity_row)
 		row.rebuild_transformation_rows()
 		self.entity_rows.append(row)
@@ -234,6 +283,9 @@ class NDimLabWindow(QMainWindow):
 		return row
 
 	def clear_scene(self) -> None:
+		"""
+		Remove all scene entities and their UI rows, then refresh the OpenGL view.
+		"""
 		for row in list(self.entity_rows):
 			self.entity_list_container.removeWidget(row)
 			row.deleteLater()
@@ -242,6 +294,16 @@ class NDimLabWindow(QMainWindow):
 		self.opengl_widget.update()
 
 	def _create_entity(self, kind: str, dim: int, count: int, color: QColor) -> None:
+		"""
+		Create a new scene entity (Polygon or PointSet), initialize its points,
+		add it to the scene, and create its UI row.
+
+		Args:
+			kind (str): Entity type ("Polygon" or other → PointSet).
+			dim (int): Dimensionality of each point.
+			count (int): Number of points to allocate.
+			color (QColor): Display color for the entity.
+		"""
 		points = np.zeros((count, dim), dtype=np.float32)
 
 		entity: SceneEntity
@@ -258,11 +320,25 @@ class NDimLabWindow(QMainWindow):
 		self.opengl_widget.update()
 
 	def _remove_entity_row(self, row: EntityRow) -> None:
+		"""
+		Remove an EntityRow from the UI and internal tracking list.
+
+		Args:
+			row (EntityRow): The row to remove.
+		"""
 		self.entity_rows.remove(row)
 		self.entity_list_container.removeWidget(row)
 		row.deleteLater()
 
 	def move_entity_row(self, row: EntityRow, delta: int) -> None:
+		"""
+		Move an entity row up or down in the sidebar and reorder the scene entities
+		accordingly.
+
+		Args:
+			row (EntityRow): The row to move.
+			delta (int): +1 to move down, -1 to move up.
+		"""
 		idx = self.entity_rows.index(row)
 		new_idx = idx + delta
 		if not (0 <= new_idx < len(self.entity_rows)):
@@ -274,6 +350,9 @@ class NDimLabWindow(QMainWindow):
 		self.opengl_widget.update()
 
 	def update_gl_overlay(self) -> None:
+		"""
+		Update the debug overlay with current OpenGL frame timing and FPS metrics.
+		"""
 		widget = self.opengl_widget
 		since_last = widget.time_since_last_paint()
 
@@ -288,15 +367,27 @@ class NDimLabWindow(QMainWindow):
 		self.overlay.move(widget.width() - self.overlay.width(), 0)
 
 	def resizeEvent(self, event) -> None:
+		"""
+		Handle window resize events and reposition the debug overlay.
+
+		Args:
+			event (QResizeEvent): The resize event.
+		"""
 		super().resizeEvent(event)
 		x = self.opengl_widget.size().width() - self.overlay.width()
 		self.overlay.move(x, 0)
 
 	def update_scene_entities(self) -> None:
+		"""
+		Apply queued transformations to all scene entities.
+		"""
 		for entity in self.scene_entities:
 			entity.apply_transformations()
 
 	def reset_transformations(self) -> None:
+		"""
+		Reset all entities to their original point positions and refresh graphics.
+		"""
 		for entity in self.scene_entities:
 			entity.points[:] = entity.original_points
 			entity.oneshot_applied = False
@@ -304,6 +395,16 @@ class NDimLabWindow(QMainWindow):
 		self.opengl_widget.update()
 
 	def save_scene_clicked(self) -> None:
+		"""
+		Open a file dialog and save the current scene to a JSON file.
+
+		Returns:
+			**result:** `None`
+			No return value; saves scene to disk.
+
+		Raises:
+			OSError: If saving fails.
+		"""
 		path_str, _ = QFileDialog.getSaveFileName(self, "Save Scene", str(DEFAULT_SAVE_PATH), "JSON Files (*.json)")
 		if not path_str:
 			return
@@ -313,6 +414,14 @@ class NDimLabWindow(QMainWindow):
 			QMessageBox.critical(self, "Save Failed", str(exc))
 
 	def load_scene_clicked(self) -> None:
+		"""
+		Open a file dialog and load a scene from a JSON file.
+
+		Raises:
+			OSError: If file access fails.
+			ValueError: If the file contains invalid data.
+			KeyError: If required fields are missing.
+		"""
 		path_str, _ = QFileDialog.getOpenFileName(self, "Load Scene", str(DEFAULT_SAVE_PATH.parent), "JSON Files (*.json)")
 		if not path_str:
 			return
@@ -322,6 +431,10 @@ class NDimLabWindow(QMainWindow):
 			QMessageBox.critical(self, "Load Failed", str(exc))
 
 	def tick(self) -> None:
+		"""
+		Perform a simulation tick: measure elapsed time, update metrics,
+		apply transformations if not paused, and trigger redraws when needed.
+		"""
 		elapsed = self.timer.nsecsElapsed() / 1e9
 		self.timer.restart()
 
@@ -343,6 +456,9 @@ class NDimLabWindow(QMainWindow):
 			self.opengl_widget.update()
 
 	def _update_pause_indicator(self) -> None:
+		"""
+		Update the pause indicator label to reflect the current paused state.
+		"""
 		if self.paused:
 			self.pause_indicator.setText("● Paused")
 			self.pause_indicator.setStyleSheet("font-weight: bold; font-size: 13px; color: #ef4444;")
@@ -351,6 +467,12 @@ class NDimLabWindow(QMainWindow):
 			self.pause_indicator.setStyleSheet("font-weight: bold; font-size: 13px; color: #22c55e;")
 
 	def pause_button_clicked(self, state: bool) -> None:
+		"""
+		Toggle the paused state of the simulation and update UI/timers.
+
+		Args:
+			state (bool): Whether the simulation should be paused.
+		"""
 		self.paused = state
 		self.physics_step_action.setEnabled(state)
 		if state:
@@ -360,10 +482,19 @@ class NDimLabWindow(QMainWindow):
 		self._update_pause_indicator()
 
 	def physics_step_clicked(self) -> None:
+		"""
+		Perform a single physics update step while paused.
+		"""
 		self.update_scene_entities()
 		self.opengl_widget.update()
 
 	def toggle_debug(self, checked: bool) -> None:
+		"""
+		Enable or disable the debug overlay.
+
+		Args:
+			checked (bool): Whether debug mode is enabled.
+		"""
 		self._debug_mode = checked
 		self.overlay.setVisible(checked)
 
