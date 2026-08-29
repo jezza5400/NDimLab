@@ -1,7 +1,57 @@
+import importlib
 import os
+import shutil
+import subprocess
 import sys
 from collections import deque
 from pathlib import Path
+
+
+def ensure_packages(packages: str | list[str]) -> int:
+	"""
+	Check for missing Python packages and install any that are not available.
+
+	Args:
+		packages (str | list[str]):
+			A single package name or a list of package names to verify and install if missing.
+
+	Returns:
+		**status:** `int`
+		The return code from the installation process.
+		`0` indicates all packages are present or installation succeeded.
+		A non-zero value indicates installation failure.
+	"""
+	missing: list[str] = []
+
+	if isinstance(packages, str):
+		packages = [packages]
+
+	for pkg in packages:
+		try:
+			importlib.import_module(pkg)
+		except ModuleNotFoundError:
+			missing.append(pkg)
+
+	if not missing:
+		return 0
+
+	plural = "s" if len(missing) > 1 else ""
+	print(f"\033[31mMissing package{plural}:\033[0m {', '.join(missing)}\nInstalling using python at: {sys.executable}")
+
+	if shutil.which("uv"):
+		command = ["uv", "pip", "install", "--python", sys.executable, *missing]
+	else:
+		command = [sys.executable, "-m", "pip", "install", *missing]
+
+	result = subprocess.run(command, text=True, check=False)
+
+	return result.returncode
+
+
+packages = ["numpy", "moderngl", "PySide6"]
+if ensure_packages(packages) != 0:
+	raise RuntimeError("Failed to install required packages, see logs for more information.")
+
 
 import numpy as np
 from PySide6.QtCore import (
@@ -63,7 +113,7 @@ class NDimLabWindow(QMainWindow):
 		self.paused: bool = begin_paused
 		self.scene_entities: list[SceneEntity] = []
 		self._debug_mode = False
-		self._dummy_scene = QGraphicsScene()  # required by SceneEntity.__init__; unused for GPU rendering
+		self.dummy_scene = QGraphicsScene()  # required by SceneEntity.__init__; unused for GPU rendering
 		self.entity_rows: list[EntityRow] = []
 		self.column_major_global: bool = False
 		self.z_order_enabled: bool = False
@@ -71,7 +121,7 @@ class NDimLabWindow(QMainWindow):
 
 		# --- Sidebar ---
 		sidebar = QWidget()
-		sidebar.setMinimumWidth(450)
+		sidebar.setMinimumWidth(480)
 		sidebar_layout = QVBoxLayout(sidebar)
 
 		title_row = QHBoxLayout()
@@ -142,7 +192,7 @@ class NDimLabWindow(QMainWindow):
 
 		self.tick_timer = QTimer()
 		self.tick_timer.timeout.connect(self.tick)
-		self.tick_timer.start(self._tick_interval_ms())
+		self.tick_timer.start(self.tick_interval_ms())
 
 		self.gl_interval_timer = QTimer()
 		self.gl_interval_timer.timeout.connect(self.update_gl_overlay)
@@ -215,7 +265,7 @@ class NDimLabWindow(QMainWindow):
 		if self.paused:
 			self.tick_timer.stop()
 
-	def _tick_interval_ms(self) -> int:
+	def tick_interval_ms(self) -> int:
 		"""
 		Compute the tick interval in milliseconds based on the current tick rate.
 
@@ -233,7 +283,7 @@ class NDimLabWindow(QMainWindow):
 			value (int): New ticks-per-second value.
 		"""
 		self.ticks_per_second = value
-		self.tick_timer.setInterval(self._tick_interval_ms())
+		self.tick_timer.setInterval(self.tick_interval_ms())
 
 	def _set_z_order_enabled(self, checked: bool) -> None:
 		"""
@@ -308,11 +358,11 @@ class NDimLabWindow(QMainWindow):
 
 		entity: SceneEntity
 		if kind == "Polygon":
-			entity = Polygon(self._dummy_scene, points)
+			entity = Polygon(self.dummy_scene, points)
 			entity.color = color
 			entity.add_to_scene(color=color)
 		else:
-			entity = PointSet(self._dummy_scene, points)
+			entity = PointSet(self.dummy_scene, points)
 			entity.color = color
 
 		self.scene_entities.append(entity)
@@ -478,7 +528,7 @@ class NDimLabWindow(QMainWindow):
 		if state:
 			self.tick_timer.stop()
 		else:
-			self.tick_timer.start(self._tick_interval_ms())
+			self.tick_timer.start(self.tick_interval_ms())
 		self._update_pause_indicator()
 
 	def physics_step_clicked(self) -> None:

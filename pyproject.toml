@@ -9,7 +9,6 @@ dependencies = [
     "numpy>=2.5.0",
     "pyside6>=6.11.1",
     "pyside6-stubs>=6.7.3.0",
-    "xmltodict>=1.0.4",
 ]
 
 [dependency-groups]

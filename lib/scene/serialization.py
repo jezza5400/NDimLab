@@ -209,7 +209,7 @@ def load_scene(window: NDimLabWindow, path: Path = DEFAULT_SAVE_PATH) -> None:
 	window.tick_rate_spin.blockSignals(True)
 	window.tick_rate_spin.setValue(window.ticks_per_second)
 	window.tick_rate_spin.blockSignals(False)
-	window.tick_timer.setInterval(window._tick_interval_ms())
+	window.tick_timer.setInterval(window.tick_interval_ms())
 
 	window.column_major_global = column_major
 	window.column_major_checkbox.blockSignals(True)
@@ -227,11 +227,11 @@ def load_scene(window: NDimLabWindow, path: Path = DEFAULT_SAVE_PATH) -> None:
 
 		entity: SceneEntity
 		if is_polygon:
-			entity = Polygon(window._dummy_scene, points)
+			entity = Polygon(window.dummy_scene, points)
 			entity.color = color
 			entity.add_to_scene(color=color)
 		else:
-			entity = PointSet(window._dummy_scene, points)
+			entity = PointSet(window.dummy_scene, points)
 			entity.color = color
 		entity.set_is_polygon(is_polygon)
 
