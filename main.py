@@ -113,7 +113,7 @@ class NDimLabWindow(QMainWindow):
 		self.paused: bool = begin_paused
 		self.scene_entities: list[SceneEntity] = []
 		self._debug_mode = False
-		self.dummy_scene = QGraphicsScene()  # required by SceneEntity.__init__; unused for GPU rendering
+		self.dummy_scene = QGraphicsScene()
 		self.entity_rows: list[EntityRow] = []
 		self.column_major_global: bool = False
 		self.z_order_enabled: bool = False
@@ -169,15 +169,17 @@ class NDimLabWindow(QMainWindow):
 
 		# --- OpenGL ---
 		self.opengl_widget = OpenGLWidget(self)
-		self.opengl_widget.scene_entities = self.scene_entities  # shared reference: append/remove stays in sync automatically
+		self.opengl_widget.scene_entities = self.scene_entities
 		self.opengl_widget.z_order_enabled = self.z_order_enabled
 
 		# --- Central QSplitter widget ---
-		splitter = QSplitter(Qt.Orientation.Horizontal)
-		splitter.addWidget(sidebar)
-		splitter.addWidget(self.opengl_widget)
-		splitter.setSizes([360, 640])
-		self.setCentralWidget(splitter)
+		self.splitter = QSplitter(Qt.Orientation.Horizontal)
+		self.splitter.addWidget(sidebar)
+		self.splitter.addWidget(self.opengl_widget)
+		self.splitter.setSizes([480, 10**6])  # sidebar snaps to its min, GL takes the rest
+		self.splitter.setStretchFactor(0, 1)  # sidebar: 1 part
+		self.splitter.setStretchFactor(1, 5)  # opengl: 5 parts
+		self.setCentralWidget(self.splitter)
 
 		# --- Debug Overlay ---
 		self.overlay = DebugOverlay(self.opengl_widget)
