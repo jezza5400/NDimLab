@@ -566,7 +566,8 @@ if __name__ == "__main__":
 		ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
 
 	window = NDimLabWindow(begin_paused=True)
-	window.show()
-	window.resize(500, 500)
+	window.showMaximized()
+	# window.show()
+	# window.resize(500, 500)
 
 	sys.exit(app.exec())
