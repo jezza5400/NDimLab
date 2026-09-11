@@ -1,4 +1,3 @@
-import importlib
 import os
 import shutil
 import subprocess
@@ -7,49 +6,21 @@ from collections import deque
 from pathlib import Path
 
 
-def ensure_packages(packages: str | list[str]) -> int:
-	"""
-	Check for missing Python packages and install any that are not available.
-
-	Args:
-		packages (str | list[str]):
-			A single package name or a list of package names to verify and install if missing.
-
-	Returns:
-		**status:** `int`
-		The return code from the installation process.
-		`0` indicates all packages are present or installation succeeded.
-		A non-zero value indicates installation failure.
-	"""
-	missing: list[str] = []
-
-	if isinstance(packages, str):
-		packages = [packages]
-
-	for pkg in packages:
-		try:
-			importlib.import_module(pkg)
-		except ModuleNotFoundError:
-			missing.append(pkg)
-
-	if not missing:
-		return 0
-
-	plural = "s" if len(missing) > 1 else ""
-	print(f"\033[31mMissing package{plural}:\033[0m {', '.join(missing)}\nInstalling using python at: {sys.executable}")
-
+def install_packages(packages: list[str]) -> int:
+	"""Runs uv or pip to ensure packages are installed without checking beforehand."""
 	if shutil.which("uv"):
-		command = ["uv", "pip", "install", "--python", sys.executable, *missing]
+		command = ["uv", "pip", "install", "--python", sys.executable, *packages]
 	else:
-		command = [sys.executable, "-m", "pip", "install", *missing]
+		command = [sys.executable, "-m", "pip", "install", *packages]
 
+	print(f"Ensuring requirements via: {' '.join(command)}")
 	result = subprocess.run(command, text=True, check=False)
-
 	return result.returncode
 
 
 packages = ["numpy", "moderngl", "PySide6"]
-if ensure_packages(packages) != 0:
+
+if install_packages(packages) != 0:
 	raise RuntimeError("Failed to install required packages, see logs for more information.")
 
 
